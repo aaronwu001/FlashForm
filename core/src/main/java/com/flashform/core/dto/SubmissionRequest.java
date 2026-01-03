@@ -1,8 +1,9 @@
 package com.flashform.core.dto;
 
+import java.io.Serializable;
 import java.util.Map;
 
-public class SubmissionRequest {
+public class SubmissionRequest implements Serializable{
     private String formId;
     private String userId;
 

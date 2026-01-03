@@ -1,7 +1,9 @@
 package com.flashform.core.controller;
 
+import com.flashform.core.config.RabbitMQConfig;
 import com.flashform.core.dto.SubmissionRequest;
 import com.flashform.core.service.SeckillService;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.web.bind.annotation.*;
@@ -15,6 +17,9 @@ public class SeckillController {
 
     @Autowired
     private StringRedisTemplate redisTemplate;
+
+    @Autowired
+    private RabbitTemplate rabbitTemplate;
 
     // 1. Initialize form quota (Admin)
     // Example: POST: http://localhost:8080/api/form/reset/101/50
@@ -34,8 +39,7 @@ public class SeckillController {
         Long result = seckillService.executeSubmission(request);
 
         if (result == 1) {
-            // TODO (Phase 3): 這裡之後要加上 RabbitMQ 發送 request 到 Queue
-            return "🎉 Submission Successful! Processing... (ID: " + request.getUserId() + ")";
+            return "🎉 Submission Successful! Your data is being processed. (ID: " + request.getUserId() + ")";
         } else if (result == -1) {
             return "⛔ " + request.getUserId() + " Repeated Submission!";
         } else if (result == 0) {
