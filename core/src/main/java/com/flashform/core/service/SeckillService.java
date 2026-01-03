@@ -1,5 +1,6 @@
 package com.flashform.core.service;
 
+import com.flashform.core.dto.SubmissionRequest;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.ClassPathResource;
@@ -18,7 +19,6 @@ public class SeckillService {
 
     private DefaultRedisScript<Long> seckillScript;
 
-    // 啟動時自動載入 Lua 腳本
     @PostConstruct
     public void init() {
         seckillScript = new DefaultRedisScript<>();
@@ -27,19 +27,21 @@ public class SeckillService {
     }
 
     /**
-     * 執行秒殺
-     * @param productId 商品ID
-     * @param userId 用戶ID
-     * @return 1=成功, 0=沒庫存, -1=重複購買
+     * execute form submission (atomic check)
+     * put parameters in DTO, for future expansion.
      */
-    public Long executeSeckill(String productId, String userId) {
-        // 定義 Redis Keys
-        String stockKey = "seckill:stock:" + productId;
-        String historyKey = "seckill:user:" + productId;
+    public Long executeSubmission(SubmissionRequest request) {
+        String formId = request.getFormId();
+        String userId = request.getUserId();
 
-        List<String> keys = Arrays.asList(stockKey, historyKey);
+        // form:quota:101 (remaining quota)
+        String quotaKey = "form:quota:" + formId;
+        // form:submitted:101 (submitted user set)
+        String submittedKey = "form:submitted:" + formId;
 
-        // 執行 Lua Script
+        List<String> keys = Arrays.asList(quotaKey, submittedKey);
+
+        // Execute Lua script
         return redisTemplate.execute(seckillScript, keys, userId);
     }
 }
