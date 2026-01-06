@@ -107,4 +107,35 @@ public class SeckillIntegrationTest {
 
         executorService.shutdown();
     }
+
+    @Test
+    public void testDuplicateSubmission() {
+        System.out.println("🔥 [Test Start] Testing Duplicate Submission...");
+
+        String duplicateUser = "User_Cheater";
+
+        // First request: success expected
+        SubmissionRequest request1 = new SubmissionRequest();
+        request1.setFormId(FORM_ID);
+        request1.setUserId(duplicateUser);
+        request1.setAnswers(new HashMap<>());
+
+        Long result1 = seckillService.executeSubmission(request1);
+        System.out.println("Result 1: " + result1);
+
+        assertEquals(1L, result1, "First request should succeed");
+
+        // Second request: failure expected
+        SubmissionRequest request2 = new SubmissionRequest();
+        request2.setFormId(FORM_ID);
+        request2.setUserId(duplicateUser); // 同樣的 User ID
+        request2.setAnswers(new HashMap<>());
+
+        Long result2 = seckillService.executeSubmission(request2);
+        System.out.println("Result 2: " + result2);
+
+        assertEquals(-1L, result2, "Second request should be rejected");
+
+        System.out.println("✅ Duplicate submission test passed.");
+    }
 }
