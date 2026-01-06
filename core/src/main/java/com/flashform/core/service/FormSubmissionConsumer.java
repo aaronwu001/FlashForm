@@ -1,27 +1,47 @@
 package com.flashform.core.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flashform.core.config.RabbitMQConfig;
 import com.flashform.core.dto.SubmissionRequest;
+import com.flashform.core.entity.Submission;
+import com.flashform.core.repository.SubmissionRepository;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 @Service
 public class FormSubmissionConsumer {
 
+    @Autowired
+    private SubmissionRepository submissionRepository;
+
+    // transform Map to String
+    private final ObjectMapper objectMapper = new ObjectMapper();
+
     // 🎧 Listening to Queue, method triggered when message comes in.
     @RabbitListener(queues = RabbitMQConfig.QUEUE_NAME)
     public void receiveMessage(SubmissionRequest request) {
-        System.out.println("========================================");
-        System.out.println("📥 [RabbitMQ Consumer] New form received!");
-        System.out.println("   User: " + request.getUserId());
-        System.out.println("   Form: " + request.getFormId());
-        System.out.println("   Answers: " + request.getAnswers());
-        System.out.println("🛠️  [DB] Writing into database... (Simulation)");
+        System.out.println("📥 [RabbitMQ] Submission Received: " + request.getUserId());
+
         try {
-            Thread.sleep(1000); // simulate writing to DB for 1 sec.
-        } catch (InterruptedException e) {
-            e.printStackTrace();
+            // 1. data transformation (DTO -> Entity) (Map -> JSON String)
+            String jsonAnswers = objectMapper.writeValueAsString(request.getAnswers());
+
+            Submission submission = new Submission(
+                    request.getFormId(),
+                    request.getUserId(),
+                    jsonAnswers
+            );
+
+            // 2. 🔥 write into PostgreSQL
+            submissionRepository.save(submission);
+
+            System.out.println("✅ [DB] Write in successful! ID: " + submission.getId());
+        } catch (Exception e) {
+            System.err.println("❌ [DB] Write in failed: " + e.getMessage());
+            // TODO: design Dead Letter Queue to process failure message
         }
+
         System.out.println("✅ [DB] Write complete!");
         System.out.println("========================================");
     }

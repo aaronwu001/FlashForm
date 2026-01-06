@@ -2,6 +2,7 @@ package com.flashform.core;
 
 import com.flashform.core.dto.SubmissionRequest;
 import com.flashform.core.service.SeckillService;
+import com.flashform.core.repository.SubmissionRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -26,75 +27,83 @@ public class SeckillIntegrationTest {
     @Autowired
     private StringRedisTemplate redisTemplate;
 
-    // 定義測試用的表單 ID
+    @Autowired
+    private SubmissionRepository submissionRepository;
+            
+    // define form id used for test
     private final String FORM_ID = "101";
 
     @BeforeEach
     public void setup() {
-        // 1. 重置 Redis 環境
-        // 設定名額為 10
+        // 1. Reset Redis
         redisTemplate.opsForValue().set("form:quota:" + FORM_ID, "10");
-        // 清空該表單的購買名單，確保測試公平
         redisTemplate.delete("form:submitted:" + FORM_ID);
 
-        System.out.println("✅ [Test Setup] 環境重置完成，名額: 10");
+        // NEW: 2. Reset Database
+         submissionRepository.deleteAll();
+
+        System.out.println("✅ [Test Setup] Environment reset finished (Redis & DB).");
     }
 
     @Test
     public void testHighConcurrency() throws InterruptedException {
-        // 模擬 1000 人同時搶購
+        // simulation of 1000 simultaneous accesses
         int peopleCount = 1000;
         ExecutorService executorService = Executors.newFixedThreadPool(peopleCount);
 
-        // 發令槍：確保所有執行緒準備好後才視為結束
+        // ensure all threads are ready
         CountDownLatch latch = new CountDownLatch(peopleCount);
 
-        // 成功計數器 (Thread-Safe)
+        // counter for success access (thread-safe)
         AtomicInteger successCount = new AtomicInteger(0);
 
-        System.out.println("🔥 [Test Start] 1000 人準備開搶...");
+        System.out.println("🔥 [Test Start] 1000 accesses in progress...");
 
         for (int i = 0; i < peopleCount; i++) {
             final String userId = "User_" + i;
 
             executorService.submit(() -> {
                 try {
-                    // 準備請求物件
+                    // prepare request object
                     SubmissionRequest request = new SubmissionRequest();
                     request.setFormId(FORM_ID);
                     request.setUserId(userId);
                     request.setAnswers(new HashMap<>());
 
-                    // 執行核心邏輯 (Redis 扣減 + RabbitMQ 發送)
+                    // execute core logic (Redis decrement + RabbitMQ submission)
                     Long result = seckillService.executeSubmission(request);
 
-                    // 判斷是否搶購成功 (使用 Objects.equals 避免 null pointer)
+                    // examine success or not (use Objects.equals to handle null pointer)
                     if (Objects.equals(result, 1L)) {
                         successCount.incrementAndGet();
                     }
                 } catch (Exception e) {
                     e.printStackTrace();
                 } finally {
-                    // 任務完成，倒數 -1
+                    // task done, countdown -1
                     latch.countDown();
                 }
             });
         }
 
-        // 等待 1000 個請求全部執行完畢
+        // wait for all 1000 requests get executed
         latch.await();
 
-        System.out.println("🏁 [Test Finish] 搶購結束！");
-        System.out.println("實際成功人數: " + successCount.get());
+        System.out.println("🏁 [Test Finish] Snap up finished！");
+        System.out.println("Success count: " + successCount.get());
 
-        // 驗證結果：名額只有 10 個，所以成功人數必須嚴格等於 10
+        // verify result for Redis, success count must be exactly 10
         assertEquals(10, successCount.get());
 
-        // 🔥 關鍵修改：等待 Consumer 處理
-        // 因為 RabbitMQ 是非同步的，主程式跑完 assertions 時，Consumer 可能還在收信。
-        // 這裡強制睡 3 秒，讓 Console 有機會印出 Consumer 的 Log。
-        System.out.println("⏳ 測試通過，正在等待 Consumer 消化 RabbitMQ 訊息 (3秒)...");
+        // wait for asynchronous process (RabbitMQ Consumer)
+        assertEquals(10, successCount.get(), "Redis layer success count should be 10");
+        System.out.println("⏳ Waiting for RabbitMQ Consumer (3 sec)...");
         Thread.sleep(3000);
+
+        // verify result for database (eventual consistency)
+        long dbCount = submissionRepository.count();
+        System.out.println("📝 Database count: " + dbCount);
+        assertEquals(10, dbCount, "Database should verify exactly 10 successful submissions");
 
         executorService.shutdown();
     }
