@@ -1,8 +1,11 @@
 package com.flashform.core.dto;
 
+import lombok.Data;
+
 import java.io.Serializable;
 import java.util.Map;
 
+@Data
 public class SubmissionRequest implements Serializable{
     private String formId;
     private String userId;

@@ -1,10 +1,14 @@
 package com.flashform.core.entity;
 
 import jakarta.persistence.*;
+import lombok.Data;
+import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "submissions")
+@Data   // auto-generation for Getter/Setter
+@NoArgsConstructor  // auto-generation for no-argument construction public Submission() {}
 public class Submission {
 
     @Id
@@ -20,19 +24,10 @@ public class Submission {
 
     private LocalDateTime createTime;
 
-    // Constructors, Getters, Setters
-    public Submission() {}
-
     public Submission(String formId, String userId, String answersJson) {
         this.formId = formId;
         this.userId = userId;
         this.answersJson = answersJson;
         this.createTime = LocalDateTime.now();
     }
-
-    // 省略 Getter/Setter，請務必補上 (或用 Lombok @Data)
-    public Long getId() { return id; }
-    public String getFormId() { return formId; }
-    public String getUserId() { return userId; }
-    public String getAnswersJson() { return answersJson; }
 }
