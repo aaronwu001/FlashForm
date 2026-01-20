@@ -1,4 +1,7 @@
 package com.flashform.core.model;
 
-public class FieldType {
+public enum FieldType {
+    TEXT,
+    NUMBER,
+    EMAIL
 }
