@@ -1,3 +1,26 @@
+# FlashForm - High-Performance Seckill & Form Backend
+
+## 🎯 Project Overview
+FlashForm is a robust backend engine designed to handle **extreme traffic spikes** in limited-inventory scenarios.
+
+In traditional web applications, when thousands of users try to submit a form or buy an item simultaneously (a "Thundering Herd" event), databases often lock up, crash, or accidentally sell more items than available (Overselling).
+
+FlashForm solves this by acting as a **high-speed traffic valve**. It guarantees:
+1.  **Zero Overselling:** Strict quota enforcement even with 10k+ concurrent requests.
+2.  **System Stability:** Protects the database from direct traffic shocks.
+3.  **Fairness:** Processes requests in an orderly manner using queues.
+
+## 💡 Typical Use Cases
+This system is ideal for any scenario requiring **"Limited Quantity + High Concurrency + Strict Time Window"**:
+
+* **⚡ E-Commerce Flash Sales:** Limited-time product launches (e.g., iPhone drops, sneaker releases).
+* **🎫 Ticketing Systems:** Concert tickets or sports event booking where seats sell out in seconds.
+* **🎓 Campus Systems:** University course registration or dormitory room selection.
+* **🏥 Medical & Public Services:** Vaccine appointment scheduling or government subsidy applications.
+* **🎁 Marketing Campaigns:** Limited-time lucky draws or "first come, first served" giveaways.
+
+---
+
 ## 🚀 Key Features & Architecture
 
 ### 1. High-Performance Concurrency Control
