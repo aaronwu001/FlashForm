@@ -71,24 +71,24 @@ Load the script located at `core/jmeter/1k_qps_test.jmx`.
 * Ramp-up Period: `1` second
 
 
-* **HTTP Request (Updated Path):**
+* **HTTP Request (RESTful Path):**
 * Method: `POST`
-* **Path:** `/api/forms/${formId}/submit`
+* **Path:** `/api/forms/${formId}/submit` (ID is now handled by the path variable)
 * **Body Data:**
+
 
 
 ```json
 {
-    "userId": "user_${__RandomString(10,abcdefghijklmnopqrstuvwxyz,)}",
-    "answers": {
-        "email": "stress_test@example.com"
-    }
+  "userId": "user_${__RandomString(10,abcdefghijklmnopqrstuvwxyz,)}",
+  "answers": {
+    "email": "stress_test@example.com"
+  }
 }
 
 ```
 
-
-*Note: The SubmissionController now extracts the formId directly from the URL path.*
+> **Note:** The `formId` has been removed from the JSON body to comply with RESTful standards. The controller automatically injects the ID from the URL into the submission logic.
 
 ---
 
@@ -117,11 +117,11 @@ A successful benchmark must meet the following three criteria based on validated
 
 ### 2. Data Consistency (Anti-Overselling)
 
-Verify that the database recorded exactly 100 submissions (matching the quota).
+Verify that the database recorded exactly 100 submissions for the specific form created in Phase 1.
 
 ```bash
-# Check PostgreSQL record count
-docker exec -it flashform-db psql -U postgres -d flashform_db -c "SELECT COUNT(*) FROM submissions WHERE form_id = '1';"
+# Check PostgreSQL record count (Replace {formId} with your actual ID)
+docker exec -it flashform-db psql -U postgres -d flashform -c "SELECT COUNT(*) FROM submissions WHERE form_id = '{formId}';"
 
 ```
 
@@ -139,3 +139,4 @@ If you need to clear the environment for a new test run, use the reset endpoint:
 
 * **Endpoint:** `POST /api/forms/{formId}/reset/{quota}`
 * **Function:** Resets the quota in Redis and clears the submission set (Idempotency Key), allowing the same users to submit again.
+* 
