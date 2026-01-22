@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.flashform.core.config.RabbitMQConfig;
 import com.flashform.core.dto.SubmissionRequest;
 import com.flashform.core.entity.Form;
+import com.flashform.core.exception.BusinessException;
 import com.flashform.core.model.FieldDefinition;
 import com.flashform.core.repository.FormRepository;
 import com.flashform.core.repository.SubmissionRepository;
@@ -100,6 +101,11 @@ public class SeckillService {
 
             return 1L;
 
+        } catch (BusinessException e) {
+            // ✨ 重要：如果是我們定義的業務異常，直接拋出，不要包裝！
+            // 這樣 GlobalExceptionHandler 才能抓到 400
+            throw e;
+
         } catch (Exception e) {
             // 🔥 將所有 Checked Exception 封裝成 RuntimeException
             // 這樣 Maven 編譯就不會報錯，且 GlobalExceptionHandler 依然能抓到
@@ -109,16 +115,17 @@ public class SeckillService {
 
     private void checkTimeAndSchema(long start, long end, String schemaJson, Map<String, Object> answers) {
         long now = System.currentTimeMillis();
-        if (now < start) throw new IllegalArgumentException("Form not started yet.");
-        if (now > end) throw new IllegalArgumentException("Form ended.");
+        // 使用自定義異常，確保觸發 400
+        if (now < start) throw new BusinessException("Form not started yet.");
+        if (now > end) throw new BusinessException("Form ended.");
 
         if (schemaJson != null && !schemaJson.isEmpty()) {
             try {
                 List<FieldDefinition> schema = objectMapper.readValue(schemaJson, new TypeReference<>() {});
                 formValidator.validate(schema, answers);
             } catch (Exception e) {
-                // 🔥 同樣轉成 RuntimeException
-                throw new RuntimeException("Schema validation error: " + e.getMessage());
+                // ✨ 這裡也改用 BusinessException
+                throw new BusinessException("Schema validation error: " + e.getMessage());
             }
         }
     }
