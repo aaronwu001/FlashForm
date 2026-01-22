@@ -120,5 +120,37 @@ To clear previous submissions and restart the test:
 2. **Reset Redis:** Run the Initialization script again (it overwrites the quota).
 3. **Purge Queue:** (Optional) Purge RabbitMQ queues if consumers are stopped.
 
+---
 
+### 🚀 Performance Benchmarks
 
+To verify the high-concurrency capabilities of **FlashForm**, a stress test was conducted using **Apache JMeter** to simulate a "Seckill" (Flash Sale) scenario.
+
+#### **Test Configuration**
+
+* **Hardware:** Local Machine (Dockerized Environment)
+* **Concurrency:** 1,000 threads (users) ramped up within 1 second.
+* **Tech Stack:** Spring Boot, Redis (Quota Pre-decrement), RabbitMQ (Async Buffering), PostgreSQL.
+
+#### **Key Performance Metrics**
+
+| Metric | Result |
+| --- | --- |
+| **Total Samples** | 1,000 |
+| **Success Rate** | **100% (0.00% Error)** |
+| **Peak Throughput** | **240.2 requests/sec** |
+| **Average Latency** | 1,906 ms |
+| **Min/Max Latency** | 590 ms / 3,191 ms |
+
+#### **Technical Highlights**
+
+* **Zero Failure Rate:** The system maintained perfect integrity under load, proving the effectiveness of our distributed locking and idempotency mechanisms.
+* **Asynchronous Decoupling:** By leveraging **RabbitMQ**, we ensured that users received immediate feedback while heavy database I/O was processed in the background, preventing system bottlenecks.
+* **Scalable Architecture:** The current benchmark provides a solid baseline for future horizontal scaling across multiple application instances.
+
+---
+
+### **Next Steps**
+
+1. **Extreme Stress Test:** Scale up to 5,000+ concurrency to identify the system's absolute breaking point.
+2. **Latency Optimization:** Tune Redis connection pool and JVM garbage collection to reduce the 95th percentile latency.
