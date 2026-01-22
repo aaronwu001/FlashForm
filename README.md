@@ -120,5 +120,5 @@ To clear previous submissions and restart the test:
 2. **Reset Redis:** Run the Initialization script again (it overwrites the quota).
 3. **Purge Queue:** (Optional) Purge RabbitMQ queues if consumers are stopped.
 
-```
+
 
