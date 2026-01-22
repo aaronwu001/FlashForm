@@ -1,50 +1,42 @@
 # 📝 Project Roadmap & TODO List
 
-## ✅ Completed (MVP Phase)
+## ✅ Completed (MVP & Core Logic)
 
 * [x] **Project Initialization:** Set up Spring Boot with Web, Data JPA, Redis, and AMQP.
-* [x] **Redis Pre-decrement:** Implemented `redisTemplate` atomic decrement for inventory control.
+* [x] **Redis Pre-decrement:** Implemented atomic decrement for high-concurrency inventory control.
 * [x] **Message Queue Integration:** Decoupled submission flow using RabbitMQ (Producer/Consumer).
-* [x] **Database Persistence:** JPA implementation for persistent storage.
+* [x] **Database Persistence:** JPA implementation for persistent PostgreSQL storage.
 * [x] **Idempotency & Resilience:** Redis Sets for duplicate check and Mutex Locking for cache protection.
-* [x] **Dynamic Schema Validation:** Implemented `FormValidator` for JSON type and logic checks.
-* [x] **UTC Standardization:** Aligned all time comparisons to UTC standard.
-* [x] **Performance Benchmarking (JMeter):** - Verified **746.27 QPS** with **100% success rate** under high load.
-* Confirmed zero-overselling and system stability under stress.
+* [x] **Dynamic Schema Validation:** Implemented `FormValidator` for dynamic JSON field checks.
+* [x] **UTC Standardization:** Standardized all time-related logic across the system to UTC.
+* [x] **Performance Verification (JMeter):** - Achieved **746.27 QPS** with **100% success rate**.
+* Verified system stability and zero-overselling under 1000+ concurrency.
+
+
+* [x] **RESTful API Refactoring:** - Moved `formId` to path variables (`/api/forms/{formId}/submit`).
+* Simplified Request Body by removing redundant ID fields.
+
+
+* [x] **High-Coverage Unit Testing:** - Completed **Mockito-based Unit Tests** for `SeckillService`.
+* Successfully validated core logic branches: Success, Duplicate, No Quota, and Time Validation.
+* Decoupled business logic verification from unstable infrastructure (Async/Database Race Conditions).
 
 
 
-## 🚧 In Progress / Testing Pivot
+## 🚀 High Priority (Pre-Enlistment Sprint 🪖)
 
-* [ ] **Testing Strategy Refactoring (Pivot to Unit Testing):**
-* **Current Status:** Encountered an "Infrastructure Race Condition" in `SeckillScenarioTest` (Integration Test) where async DB visibility issues cause inconsistent assertions.
-* **Decision:** Pivot from full-stack integration tests to **High-Coverage Unit Tests** for `SeckillService`.
-* **Action:** Use **Mockito** to mock Redis and RabbitMQ dependencies, focusing on code path correctness without infrastructure lag.
+* [ ] **Simple Frontend Demo:** - Create a minimal HTML/JavaScript page in `src/main/resources/static`.
+* Implement a "Seckill Button" and real-time status display (Queueing / Success / Sold Out).
 
 
-* [ ] **Dead Letter Queue (DLQ):** Handle edge-case consumer failures for extreme reliability.
-* [ ] **Docker Compose Optimization:** Orchestrate the environment for one-click deployment.
-
-## 📅 Backlog / Future Improvements
-
-### ☁️ Cloud & DevOps
-
-* [ ] **Cloud Deployment:** Deploy to AWS/GCP to verify horizontal scalability and real network latency.
-* [ ] **CI/CD Pipeline:** Integrate GitHub Actions to run Unit Tests on every push.
-
-### Performance & Security
-
-* [ ] **Redis Scripting (Lua):** Further optimize the "check-and-set" atomicity.
-* [ ] **Rate Limiting:** Implement Token Bucket for API protection.
-
-### Frontend
-
-* [ ] **Admin Dashboard:** A simple UI to monitor real-time quota and submission counts.
+* [ ] **Docker Compose & Cloud Prep:** - Finalize `docker-compose.yml` for one-click environment setup.
+* Deploy to a cloud platform (e.g., AWS EC2, Render, or Railway) to create a shareable live demo link.
 
 
-這份 TODO 清楚地展示了你作為開發者的**決策過程（Decision Making）**：
 
-1. **JMeter** 證明了你的系統在「真實世界」的高負載下是成功的。
-2. **單元測試** 的轉向證明你了解如何處理「不穩定的測試環境」，選擇更高效、更精確的方式來驗證代碼。
+## 📅 Backlog (Future Improvements)
 
-**下一步，需要我幫你寫出第一個針對 `SeckillService.executeSubmission` 的 Mockito 單元測試範例嗎？這能讓你立刻逃離整合測試的死胡同。**
+* [ ] **Dead Letter Queue (DLQ):** Handle consumer persistence failures for mission-critical reliability.
+* [ ] **Rate Limiting:** Implement Token Bucket or Leaky Bucket algorithm at the API Gateway level.
+* [ ] **Redis Optimization (Lua):** Consolidate inventory check and idempotency check into a single Lua script for better atomicity.
+* [ ] **Admin Dashboard:** A basic UI to create forms and monitor submission data.
