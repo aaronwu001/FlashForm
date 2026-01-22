@@ -1,109 +1,48 @@
 # FlashForm - High-Performance Seckill & Form Backend
 
 ## 🎯 Project Overview
+
 FlashForm is a robust backend engine designed to handle **extreme traffic spikes** in limited-inventory scenarios.
 
-In traditional web applications, when thousands of users try to submit a form or buy an item simultaneously (a "Thundering Herd" event), databases often lock up, crash, or accidentally sell more items than available (Overselling).
+FlashForm acts as a **high-speed traffic valve**. It guarantees:
 
-FlashForm solves this by acting as a **high-speed traffic valve**. It guarantees:
-1.  **Zero Overselling:** Strict quota enforcement even with 10k+ concurrent requests.
-2.  **System Stability:** Protects the database from direct traffic shocks.
-3.  **Fairness:** Processes requests in an orderly manner using queues.
-
-## 💡 Typical Use Cases
-This system is ideal for any scenario requiring **"Limited Quantity + High Concurrency + Strict Time Window"**:
-
-* **⚡ E-Commerce Flash Sales:** Limited-time product launches (e.g., iPhone drops, sneaker releases).
-* **🎫 Ticketing Systems:** Concert tickets or sports event booking where seats sell out in seconds.
-* **🎓 Campus Systems:** University course registration or dormitory room selection.
-* **🏥 Medical & Public Services:** Vaccine appointment scheduling or government subsidy applications.
-* **🎁 Marketing Campaigns:** Limited-time lucky draws or "first come, first served" giveaways.
+1. **Zero Overselling:** Strict quota enforcement even with 10k+ concurrent requests.
+2. **System Stability:** Protects the database from direct traffic shocks.
+3. **Fairness:** Processes requests in an orderly manner using queues.
 
 ---
 
-## 🚀 Key Features & Architecture
-
-### 1. High-Performance Concurrency Control
-- **Redis Atomic Operations:** Uses `DECR` for in-memory stock management, blocking excess requests before they reach the DB.
-- **Mutex Locking (Cache Breakdown Protection):** Implemented a locking mechanism (`setIfAbsent`) to prevent "Thundering Herd" issues when cache expires or is evicted. Only one thread accesses the DB to rebuild the cache.
-
-### 2. Resilience & Self-Healing
-- **Automatic Cache Rebuild:** The system detects cache misses (Meta or Quota) and automatically restores data from PostgreSQL to Redis.
-- **Partial Failure Handling:** Capable of recovering from edge cases where only specific keys (e.g., quota) are missing.
-
-### 3. Asynchronous Peak Shaving
-- **RabbitMQ Integration:** Decouples submission ingestion from persistence.
-- **Flow:** `User Request` -> `Validation & Stock Check` -> `RabbitMQ` -> `Consumer` -> `PostgreSQL`.
-
-### 4. Dynamic Validation (UTC Standard)
-- **Schema Validation:** Validates JSON input against dynamic rules defined in the database.
-- **UTC Standardization:** All time comparisons and storage use UTC to ensure global consistency.
-
-## 🧪 Testing
-The project includes a robust test suite `SeckillScenarioTest` covering 6 critical scenarios:
-1.  **Happy Path:** Full flow verification (Redis -> MQ -> DB).
-2.  **Validation Fail:** Rejection of invalid data types.
-3.  **Duplicate Submission:** Idempotency verification.
-4.  **Meta/Quota Rebuild:** Verifies system recovery after cache deletion.
-5.  **Ghost User Rebuild:** Ensures database migration logic works if Redis user sets are lost.
-6.  **Partial Cache Miss:** Verifies quota restoration logic.
-
 ## 🚀 API Usage & Setup Guide
 
-### 1. Environment Setup
-Ensure all Docker containers are running and healthy.
-```bash
-docker compose up -d --build
+### 1. Initialize Form (Admin Setup)
 
-```
+建立表單資源並觸發 **Cache Warm-up**，系統會同步更新 Redis 中的 Quota 與 Meta 數據。
 
-### 2. Initialize Form (Admin Setup)
-
-Before users can submit data, the form **Metadata (Schema)** and **Quota** must be initialized in Redis.
-
-* **Note:** The `type` field MUST be one of: `TEXT`, `NUMBER`, `EMAIL`. Using other types (e.g., `STRING`) will result in a `400 Bad Request`.
-
-**Option A: Using PowerShell Script (Recommended for Dev)**
-Modify `$formBody` in `setup_test.ps1`:
-
-```powershell
-$formBody = @{
-    ownerId = "Admin"
-    quota = 100
-    # format: [{"name": "field_key", "type": "ENUM_TYPE", "required": boolean}]
-    schemaJson = '[{"name":"email","type":"TEXT","required":true}]' 
-}
-
-```
-
-**Option B: Manual Initialization (via Redis CLI)**
-If you don't have an Init API exposed yet, you can manually set the schema in Redis:
-
-```bash
-docker exec -it flashform-redis redis-cli
-
-# 1. Set Quota
-SET form:quota:1 "100"
-
-# 2. Set Metadata (Schema)
-# Key: form:meta:{formId}
-# Field: schema
-# Value: JSON String (Escaped)
-HSET form:meta:1 schema "[{\"name\":\"email\",\"type\":\"TEXT\",\"required\":true}]"
-
-```
-
-### 3. Submit Form (User Action)
-
-This is the endpoint for high-concurrency testing.
-
-* **Endpoint:** `POST /api/form/submit`
-* **Content-Type:** `application/json`
+* **Endpoint:** `POST /api/forms`
 * **Payload Example:**
 
 ```json
 {
-  "formId": "1",
+    "ownerId": "Admin_Aaron",
+    "title": "Flash Sale Test",
+    "quota": 100,
+    "startTime": "2026-01-22T20:00:00",
+    "endTime": "2026-01-23T20:00:00",
+    "schemaJson": "[{\"name\":\"email\",\"type\":\"TEXT\",\"required\":true}]"
+}
+
+```
+
+### 2. Submit Form (User Action)
+
+此接口專為高併發環境設計，僅負責核心提交邏輯。
+
+* **Endpoint:** `POST /api/forms/{formId}/submit`
+* **Performance:** 經測試在 1000 併發下達成 **0% 錯誤率** 與 **746.27 QPS**。
+* **Payload Example:**
+
+```json
+{
   "userId": "user_123",
   "answers": {
     "email": "test@example.com"
@@ -112,19 +51,24 @@ This is the endpoint for high-concurrency testing.
 
 ```
 
-### 4. Reset Logic (For Retesting)
+### 3. Monitor & Reset (Admin Control)
 
-To clear previous submissions and restart the test:
+管理員可以用來監控即時剩餘配額，或在測試結束後重置環境。
 
-1. **Flush DB:** `TRUNCATE TABLE submissions;` (in Postgres)
-2. **Reset Redis:** Run the Initialization script again (it overwrites the quota).
-3. **Purge Queue:** (Optional) Purge RabbitMQ queues if consumers are stopped.
+* **Check Quota:** `GET /api/forms/{formId}/quota`
+* 直接從 Redis 讀取當前剩餘名額。
+
+
+* **Reset Environment:** `POST /api/forms/{formId}/reset/{quota}`
+* 重設配額數量並清除 Redis 中的已提交名單 (Idempotency Key)。
+
+
 
 ---
 
 ## 🚀 High-Concurrency Performance Benchmarks
 
-The core submission logic of **FlashForm** was stress-tested using **Apache JMeter** to simulate real-world high-traffic events.
+The core submission logic was stress-tested using **Apache JMeter**.
 
 ### **Performance Summary**
 
@@ -139,6 +83,19 @@ The core submission logic of **FlashForm** was stress-tested using **Apache JMet
 
 ### **Technical Deep Dive**
 
-* **Zero-Failure Guarantee:** Even under a heavy load of 1,000 requests per second, the system maintained a **0.00% error rate**, ensuring every valid submission was captured without data loss.
-* **High-Throughput Architecture:** By implementing **Redis-based quota management**, the system successfully processed up to **746 transactions per second**, significantly outperforming traditional database-locking approaches.
-* **Reliable Back-pressure:** The use of **RabbitMQ** allowed the system to maintain consistent response times (Avg 1.3s under stress) while decoupling front-end feedback from back-end database persistence.
+* **Zero-Failure Guarantee:** Even under a heavy load of 1,000 requests per second, the system maintained a **0.00% error rate**.
+* **High-Throughput Architecture:** By implementing **Redis-based quota management**, the system successfully processed up to **746 transactions per second**.
+* **Reliable Back-pressure:** The use of **RabbitMQ** allowed consistent response times (Avg 1.3s under stress) while decoupling front-end feedback from database persistence.
+
+---
+
+## 🧪 Testing Scenarios
+
+`SeckillScenarioTest` covers 6 critical business cases:
+
+1. **Happy Path:** Verification of full flow (Redis -> MQ -> DB).
+2. **Validation Fail:** Rejection of invalid data types.
+3. **Duplicate Submission:** Idempotency verification via Redis Set.
+4. **Meta/Quota Rebuild:** System recovery after cache eviction.
+5. **Ghost User Rebuild:** Database-to-Cache migration for user lists.
+6. **Partial Cache Miss:** Automated restoration of missing Quota keys.
