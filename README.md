@@ -47,3 +47,78 @@ The project includes a robust test suite `SeckillScenarioTest` covering 6 critic
 4.  **Meta/Quota Rebuild:** Verifies system recovery after cache deletion.
 5.  **Ghost User Rebuild:** Ensures database migration logic works if Redis user sets are lost.
 6.  **Partial Cache Miss:** Verifies quota restoration logic.
+
+## 🚀 API Usage & Setup Guide
+
+### 1. Environment Setup
+Ensure all Docker containers are running and healthy.
+```bash
+docker compose up -d --build
+
+```
+
+### 2. Initialize Form (Admin Setup)
+
+Before users can submit data, the form **Metadata (Schema)** and **Quota** must be initialized in Redis.
+
+* **Note:** The `type` field MUST be one of: `TEXT`, `NUMBER`, `EMAIL`. Using other types (e.g., `STRING`) will result in a `400 Bad Request`.
+
+**Option A: Using PowerShell Script (Recommended for Dev)**
+Modify `$formBody` in `setup_test.ps1`:
+
+```powershell
+$formBody = @{
+    ownerId = "Admin"
+    quota = 100
+    # format: [{"name": "field_key", "type": "ENUM_TYPE", "required": boolean}]
+    schemaJson = '[{"name":"email","type":"TEXT","required":true}]' 
+}
+
+```
+
+**Option B: Manual Initialization (via Redis CLI)**
+If you don't have an Init API exposed yet, you can manually set the schema in Redis:
+
+```bash
+docker exec -it flashform-redis redis-cli
+
+# 1. Set Quota
+SET form:quota:1 "100"
+
+# 2. Set Metadata (Schema)
+# Key: form:meta:{formId}
+# Field: schema
+# Value: JSON String (Escaped)
+HSET form:meta:1 schema "[{\"name\":\"email\",\"type\":\"TEXT\",\"required\":true}]"
+
+```
+
+### 3. Submit Form (User Action)
+
+This is the endpoint for high-concurrency testing.
+
+* **Endpoint:** `POST /api/form/submit`
+* **Content-Type:** `application/json`
+* **Payload Example:**
+
+```json
+{
+  "formId": "1",
+  "userId": "user_123",
+  "answers": {
+    "email": "test@example.com"
+  }
+}
+
+```
+
+### 4. Reset Logic (For Retesting)
+
+To clear previous submissions and restart the test:
+
+1. **Flush DB:** `TRUNCATE TABLE submissions;` (in Postgres)
+2. **Reset Redis:** Run the Initialization script again (it overwrites the quota).
+3. **Purge Queue:** (Optional) Purge RabbitMQ queues if consumers are stopped.
+
+```
+
