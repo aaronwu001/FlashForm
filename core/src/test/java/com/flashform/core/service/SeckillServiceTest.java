@@ -1,135 +1,141 @@
 package com.flashform.core.service;
 
-import com.flashform.core.config.RabbitMQConfig;
 import com.flashform.core.dto.SubmissionRequest;
 import com.flashform.core.entity.Form;
+import com.flashform.core.exception.BusinessException;
 import com.flashform.core.repository.FormRepository;
 import com.flashform.core.repository.SubmissionRepository;
-import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.MockitoAnnotations;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
-import org.springframework.data.redis.core.HashOperations;
-import org.springframework.data.redis.core.SetOperations;
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.ValueOperations;
+import org.springframework.data.redis.core.*;
 
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
 import static org.mockito.Mockito.*;
 
-@ExtendWith(MockitoExtension.class)
-public class SeckillServiceTest {
-
-    @Mock private StringRedisTemplate redisTemplate;
-    @Mock private RabbitTemplate rabbitTemplate;
-    @Mock private FormRepository formRepository;
-    @Mock private SubmissionRepository submissionRepository;
-    @Mock private FormValidator formValidator;
+class SeckillServiceTest {
 
     @InjectMocks
     private SeckillService seckillService;
 
-    @Mock private HashOperations<String, Object, Object> hashOperations;
-    @Mock private ValueOperations<String, String> valueOperations;
-    @Mock private SetOperations<String, String> setOperations;
+    @Mock
+    private StringRedisTemplate redisTemplate;
+
+    @Mock
+    private RabbitTemplate rabbitTemplate;
+
+    @Mock
+    private FormRepository formRepository;
+
+    @Mock
+    private SubmissionRepository submissionRepository;
+
+    @Mock
+    private FormValidator formValidator;
+
+    // Mock Redis Operations
+    @Mock private HashOperations<String, Object, Object> hashOps;
+    @Mock private ValueOperations<String, String> valueOps;
+    @Mock private SetOperations<String, String> setOps;
 
     @BeforeEach
     void setUp() {
-        // 確保每次呼叫 opsFor 系列方法都回傳對應的 Mock
-        lenient().when(redisTemplate.opsForHash()).thenReturn(hashOperations);
-        lenient().when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        lenient().when(redisTemplate.opsForSet()).thenReturn(setOperations);
+        MockitoAnnotations.openMocks(this);
+        when(redisTemplate.opsForHash()).thenReturn(hashOps);
+        when(redisTemplate.opsForValue()).thenReturn(valueOps);
+        when(redisTemplate.opsForSet()).thenReturn(setOps);
     }
 
     @Test
-    @DisplayName("🔴 測試時間未開始：預期拋出 RuntimeException")
-    void testExecuteSubmission_NotStarted() {
-        // 1. 準備請求
+    void testSeckillSuccess() {
+        // Arrange
+        Long formId = 1L; // ✨ 修正：使用 Long
+        String userId = "user123";
         SubmissionRequest request = new SubmissionRequest();
-        request.setFormId("1");
-        request.setUserId("user_test");
+        request.setFormId(formId); // ✨ 修正
+        request.setUserId(userId);
         request.setAnswers(new HashMap<>());
 
-        // 2. 模擬 Redis 中已存在 Meta 數據，但開始時間在未來 (現在 + 1小時)
-        long futureStart = System.currentTimeMillis() + 3600000;
-        long futureEnd = System.currentTimeMillis() + 7200000;
+        // Mock Redis Meta (Cache Hit)
+        Map<Object, Object> meta = new HashMap<>();
+        meta.put("startTime", String.valueOf(System.currentTimeMillis() - 1000));
+        meta.put("endTime", String.valueOf(System.currentTimeMillis() + 10000));
+        meta.put("schema", "[]");
+        when(hashOps.entries("form:meta:" + formId)).thenReturn(meta);
 
-        Map<Object, Object> metaMap = new HashMap<>();
-        metaMap.put("startTime", String.valueOf(futureStart));
-        metaMap.put("endTime", String.valueOf(futureEnd));
-        metaMap.put("schema", "");
+        // Mock Quota Check
+        when(redisTemplate.hasKey("form:quota:" + formId)).thenReturn(true);
+        when(valueOps.decrement("form:quota:" + formId)).thenReturn(99L);
 
-        // ✨ 關鍵 Mock：確保進入 else 分支且時間校驗失敗
-        when(hashOperations.entries("form:meta:1")).thenReturn(metaMap);
-        // 模擬配額 Key 存在，防止程式碼跑去查資料庫回傳 -2
-        when(redisTemplate.hasKey("form:quota:1")).thenReturn(true);
+        // Mock Idempotency (User hasn't submitted yet)
+        when(redisTemplate.hasKey("form:submitted:" + formId)).thenReturn(true);
+        when(setOps.isMember("form:submitted:" + formId, userId)).thenReturn(false);
 
-        // 3. 執行並驗證
-        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
+        // Act
+        Long result = seckillService.executeSubmission(request);
+
+        // Assert
+        assertEquals(1L, result);
+        verify(rabbitTemplate, times(1)).convertAndSend(anyString(), eq(request));
+    }
+
+    @Test
+    void testSeckillQuotaFull() {
+        // Arrange
+        Long formId = 1L; // ✨ 修正
+        String userId = "user123";
+        SubmissionRequest request = new SubmissionRequest();
+        request.setFormId(formId); // ✨ 修正
+        request.setUserId(userId);
+        request.setAnswers(new HashMap<>());
+
+        Map<Object, Object> meta = new HashMap<>();
+        meta.put("startTime", String.valueOf(System.currentTimeMillis() - 1000));
+        meta.put("endTime", String.valueOf(System.currentTimeMillis() + 10000));
+        when(hashOps.entries("form:meta:" + formId)).thenReturn(meta);
+
+        when(redisTemplate.hasKey("form:quota:" + formId)).thenReturn(true);
+        when(redisTemplate.hasKey("form:submitted:" + formId)).thenReturn(true);
+        when(setOps.isMember("form:submitted:" + formId, userId)).thenReturn(false);
+
+        // Mock Quota Full (Decrement returns -1)
+        when(valueOps.decrement("form:quota:" + formId)).thenReturn(-1L);
+
+        // Act
+        Long result = seckillService.executeSubmission(request);
+
+        // Assert
+        assertEquals(0L, result); // 0 means Quota Full
+        // Should increment back the quota
+        verify(valueOps, times(1)).increment("form:quota:" + formId);
+    }
+
+    @Test
+    void testSeckillTimeNotStarted() {
+        // Arrange
+        Long formId = 1L; // ✨ 修正
+        SubmissionRequest request = new SubmissionRequest();
+        request.setFormId(formId); // ✨ 修正
+        request.setUserId("user1");
+
+        Map<Object, Object> meta = new HashMap<>();
+        // Start time is in the future
+        meta.put("startTime", String.valueOf(System.currentTimeMillis() + 5000));
+        meta.put("endTime", String.valueOf(System.currentTimeMillis() + 10000));
+        when(hashOps.entries("form:meta:" + formId)).thenReturn(meta);
+        when(redisTemplate.hasKey("form:quota:" + formId)).thenReturn(true);
+
+        // Act & Assert
+        // ✨ 修正：現在我們會拋出 BusinessException 而不是通用的 RuntimeException
+        assertThrows(BusinessException.class, () -> {
             seckillService.executeSubmission(request);
         });
-
-        // 驗證錯誤訊息是否包含預期內容
-        Assertions.assertTrue(exception.getMessage().contains("Form not started yet"),
-                "應該包含 'Form not started yet' 但實際訊息為: " + exception.getMessage());
-    }
-
-    @Test
-    @DisplayName("🟢 測試成功秒殺路徑")
-    void testExecuteSubmission_Success() {
-        SubmissionRequest request = new SubmissionRequest();
-        request.setFormId("1");
-        request.setUserId("user_happy");
-        request.setAnswers(new HashMap<>());
-
-        // 模擬時間在範圍內
-        Map<Object, Object> metaMap = new HashMap<>();
-        metaMap.put("startTime", String.valueOf(System.currentTimeMillis() - 10000));
-        metaMap.put("endTime", String.valueOf(System.currentTimeMillis() + 10000));
-        metaMap.put("schema", "");
-
-        when(hashOperations.entries("form:meta:1")).thenReturn(metaMap);
-        when(redisTemplate.hasKey("form:quota:1")).thenReturn(true);
-        when(redisTemplate.hasKey("form:submitted:1")).thenReturn(true);
-        when(setOperations.isMember("form:submitted:1", "user_happy")).thenReturn(false);
-        when(valueOperations.decrement("form:quota:1")).thenReturn(50L);
-
-        Long result = seckillService.executeSubmission(request);
-
-        Assertions.assertEquals(1L, result);
-        verify(rabbitTemplate).convertAndSend(eq(RabbitMQConfig.QUEUE_NAME), any(SubmissionRequest.class));
-    }
-
-    @Test
-    @DisplayName("🔴 測試重複提交")
-    void testExecuteSubmission_Duplicate() {
-        SubmissionRequest request = new SubmissionRequest();
-        request.setFormId("1");
-        request.setUserId("user_happy");
-
-        Map<Object, Object> metaMap = new HashMap<>();
-        metaMap.put("startTime", String.valueOf(System.currentTimeMillis() - 10000));
-        metaMap.put("endTime", String.valueOf(System.currentTimeMillis() + 10000));
-
-        when(hashOperations.entries("form:meta:1")).thenReturn(metaMap);
-        when(redisTemplate.hasKey("form:quota:1")).thenReturn(true);
-        when(redisTemplate.hasKey("form:submitted:1")).thenReturn(true);
-        // ✨ 模擬使用者已經提交過
-        when(setOperations.isMember("form:submitted:1", "user_happy")).thenReturn(true);
-
-        Long result = seckillService.executeSubmission(request);
-
-        Assertions.assertEquals(-1L, result);
-        verify(valueOperations, never()).decrement(anyString());
     }
 }

@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>FlashForm Platform | 終極展示版</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #ffffff;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        .modal-content { max-height: 80vh; overflow-y: auto; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen font-sans">
+
+<nav class="bg-blue-600 text-white p-4 shadow-lg flex justify-between items-center sticky top-0 z-50">
+    <h1 class="text-2xl font-bold tracking-wider cursor-pointer" onclick="backToDashboard()">⚡ FlashForm</h1>
+    <div id="userInfo" class="hidden flex items-center gap-4">
+        <span id="displayUser" class="font-medium"></span>
+        <button onclick="logout()" class="bg-red-500 hover:bg-red-600 px-3 py-1 rounded text-sm transition">登出</button>
+    </div>
+</nav>
+
+<div class="container mx-auto p-6 max-w-6xl">
+    <div id="loginView" class="max-w-md mx-auto mt-20 bg-white p-8 rounded-xl shadow-lg">
+        <h2 class="text-3xl font-bold mb-6 text-center text-gray-800">歡迎回來</h2>
+        <input type="text" id="loginId" placeholder="User ID (例如: Aaron)" class="w-full border p-3 rounded-lg mb-4 outline-none focus:ring-2 focus:ring-blue-500">
+        <button id="loginBtn" onclick="login()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold transition">進入系統</button>
+    </div>
+
+    <div id="dashboardView" class="hidden grid grid-cols-1 lg:grid-cols-2 gap-8">
+        <div class="bg-white p-6 rounded-xl shadow-md">
+            <div class="flex justify-between items-center mb-6 pb-2 border-b">
+                <h3 class="text-xl font-bold text-gray-800">📂 我發布的活動</h3>
+                <button onclick="showCreateModal()" class="bg-green-500 text-white px-3 py-2 rounded-lg text-sm shadow hover:bg-green-600 transition">+ 創建</button>
+            </div>
+            <div id="myFormsList" class="space-y-4 max-h-[600px] overflow-y-auto pr-2"></div>
+        </div>
+
+        <div class="bg-white p-6 rounded-xl shadow-md">
+            <div class="flex justify-between items-center mb-6 pb-2 border-b">
+                <h3 class="text-xl font-bold text-gray-800">🔥 熱門秒殺現場</h3>
+                <button onclick="refreshPublicForms()" class="text-blue-500 text-sm hover:underline">🔄 刷新</button>
+            </div>
+            <div id="publicFormsList" class="space-y-4 max-h-[600px] overflow-y-auto pr-2"></div>
+        </div>
+    </div>
+
+    <div id="seckillView" class="hidden max-w-2xl mx-auto">
+        <button onclick="backToDashboard()" class="mb-4 text-gray-500 hover:text-gray-800 flex items-center gap-2">⬅ 回到儀表板</button>
+
+        <div class="bg-white p-8 rounded-xl shadow-lg border-t-4 border-red-500">
+            <div class="text-center mb-8">
+                <span class="bg-red-100 text-red-600 px-3 py-1 rounded-full text-xs font-bold uppercase">Live Event</span>
+                <h2 id="seckillTitle" class="text-3xl font-extrabold text-gray-900 mt-2"></h2>
+                <p class="text-gray-500 mt-1">Form ID: <span id="currentFormIdDisplay"></span></p>
+            </div>
+
+            <div class="mb-6">
+                <h3 class="text-sm font-medium text-gray-700 mb-3 border-b pb-1">填寫報名資訊</h3>
+                <div id="dynamicFormContainer" class="space-y-4"></div>
+            </div>
+
+            <button id="seckillBtn" onclick="executeSeckill()" class="w-full bg-red-600 text-white py-4 rounded-xl text-2xl font-bold hover:bg-red-700 shadow-xl transition transform active:scale-95">
+                🔥 立即搶購 (Seckill!)
+            </button>
+            <div id="resultMessage" class="mt-6 hidden p-4 rounded-lg text-center font-medium border"></div>
+
+            <div class="mt-12 pt-6 border-t border-dashed border-gray-300">
+                <h3 class="text-lg font-bold text-gray-800 mb-2">💥 壓力測試 (Demo Only)</h3>
+                <p class="text-sm text-gray-500 mb-4">模擬 200 個併發請求，測試系統的「防超賣」能力。</p>
+                <div class="flex gap-4">
+                    <button onclick="runStressTest()" class="flex-1 bg-gray-800 text-white py-3 rounded-lg font-bold hover:bg-black transition">
+                        🚀 發動 200 人並行攻擊
+                    </button>
+                </div>
+                <div id="stressTestLog" class="mt-4 text-xs font-mono bg-gray-100 p-3 rounded max-h-40 overflow-y-auto hidden"></div>
+                <div id="stressResult" class="mt-2 text-center font-bold hidden"></div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="createModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+    <div class="bg-white p-8 rounded-xl w-[500px] modal-content shadow-2xl">
+        <h3 class="text-xl font-bold mb-4 border-b pb-2">新增秒殺活動</h3>
+        <div class="space-y-4 mb-6">
+            <div><label class="block text-sm text-gray-700">活動標題</label><input type="text" id="newTitle" class="w-full border p-2 rounded"></div>
+            <div><label class="block text-sm text-gray-700">庫存配額</label><input type="number" id="newQuota" value="100" class="w-full border p-2 rounded"></div>
+        </div>
+        <div class="mb-6">
+            <div class="flex justify-between items-center mb-2">
+                <label class="block text-sm text-gray-700">欄位定義</label>
+                <button onclick="addSchemaField()" class="text-xs bg-blue-50 text-blue-600 px-2 py-1 rounded">+ 新增</button>
+            </div>
+            <div id="schemaContainer" class="space-y-2 border border-dashed p-3 rounded bg-gray-50 min-h-[80px]">
+                <p id="emptySchemaHint" class="text-xs text-gray-400 text-center py-4">暫無欄位</p>
+            </div>
+        </div>
+        <div class="flex justify-end gap-2">
+            <button onclick="hideCreateModal()" class="bg-gray-200 text-gray-700 px-4 py-2 rounded">取消</button>
+            <button onclick="submitNewForm()" class="bg-blue-600 text-white px-4 py-2 rounded">發布</button>
+        </div>
+    </div>
+</div>
+
+<div id="dataModal" class="fixed inset-0 bg-black bg-opacity-50 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+    <div class="bg-white p-8 rounded-xl w-[800px] modal-content shadow-2xl">
+        <div class="flex justify-between items-center mb-4 border-b pb-2">
+            <h3 class="text-xl font-bold" id="dataModalTitle">提交紀錄</h3>
+            <button onclick="hideDataModal()" class="text-gray-500 hover:text-red-500 text-2xl">×</button>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left text-gray-500">
+                <thead class="text-xs text-gray-700 uppercase bg-gray-100">
+                <tr>
+                    <th class="px-4 py-3">ID</th>
+                    <th class="px-4 py-3">User ID</th>
+                    <th class="px-4 py-3">提交時間</th>
+                    <th class="px-4 py-3">詳細資料 (JSON)</th>
+                </tr>
+                </thead>
+                <tbody id="submissionTableBody">
+                </tbody>
+            </table>
+        </div>
+        <div class="mt-4 flex justify-end">
+            <button onclick="hideDataModal()" class="bg-gray-200 text-gray-700 px-4 py-2 rounded">關閉</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentUser = localStorage.getItem('flashform_user');
+    let currentFormId = null;
+    let allFormsCache = [];
+
+    window.onload = () => { if(currentUser) showDashboard(); };
+
+    // --- 視圖切換 ---
+    function login() {
+        const id = document.getElementById('loginId').value;
+        if(!id) return alert('請輸入 ID');
+        localStorage.setItem('flashform_user', id);
+        currentUser = id;
+
+        // 增加一個 Loading 效果，讓你知道有在跑
+        const btn = document.getElementById('loginBtn');
+        btn.innerText = '載入系統中...';
+        btn.disabled = true;
+
+        showDashboard().catch(e => {
+            console.error(e);
+            alert('系統載入失敗，請檢查後端是否啟動');
+            btn.innerText = '進入系統';
+            btn.disabled = false;
+        });
+    }
+
+    function logout() { localStorage.removeItem('flashform_user'); location.reload(); }
+
+    async function showDashboard() {
+        hideAllViews();
+        document.getElementById('dashboardView').classList.remove('hidden');
+        document.getElementById('userInfo').classList.remove('hidden');
+        document.getElementById('displayUser').innerText = `👤 ${currentUser}`;
+
+        // 使用 Promise.all 並行加載，並加上錯誤處理
+        await Promise.all([refreshMyForms(), refreshPublicForms()]);
+    }
+
+    function hideAllViews() {
+        document.getElementById('loginView').classList.add('hidden');
+        document.getElementById('dashboardView').classList.add('hidden');
+        document.getElementById('seckillView').classList.add('hidden');
+    }
+    function backToDashboard() { showDashboard(); document.getElementById('resultMessage').classList.add('hidden'); }
+
+    // --- 查看數據邏輯 (已優化顯示) ---
+    async function showDataModal(formId, title) {
+        document.getElementById('dataModal').classList.remove('hidden');
+        document.getElementById('dataModalTitle').innerText = `📊 ${title} - 提交名單`;
+        const tbody = document.getElementById('submissionTableBody');
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4">載入中...</td></tr>';
+
+        try {
+            const res = await fetch(`/api/forms/${formId}/submissions`);
+            if(!res.ok) throw new Error("API Error");
+            const result = await res.json();
+
+            if(!result.data || result.data.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4">目前還沒有人提交</td></tr>';
+                return;
+            }
+
+            // ✨ 這是一個內聯的小函數，用來把 JSON 字串變成漂亮的 HTML
+            const formatAnswers = (jsonStr) => {
+                try {
+                    const obj = JSON.parse(jsonStr);
+                    // 把每個 key-value 轉成一行行的 div
+                    return Object.entries(obj).map(([key, val]) =>
+                        `<div class="mb-1">
+                            <span class="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded font-bold mr-1">${key}:</span>
+                            <span class="text-gray-700">${val}</span>
+                         </div>`
+                    ).join('');
+                } catch (e) {
+                    return jsonStr; // 如果解析失敗就顯示原字串
+                }
+            };
+
+            tbody.innerHTML = result.data.map(sub => `
+                <tr class="bg-white border-b hover:bg-gray-50 align-top">
+                    <td class="px-4 py-3 text-gray-500">${sub.id}</td>
+                    <td class="px-4 py-3 font-medium text-gray-900">${sub.userId}</td>
+                    <td class="px-4 py-3 text-gray-500 text-xs">${new Date(sub.createTime).toLocaleString()}</td>
+
+                    <td class="px-4 py-3 text-sm">
+                        ${formatAnswers(sub.answersJson)}
+                    </td>
+                </tr>
+            `).join('');
+
+        } catch(e) {
+            console.error(e);
+            tbody.innerHTML = '<tr><td colspan="4" class="text-center text-red-500 py-4">資料載入失敗</td></tr>';
+        }
+    }
+    function hideDataModal() { document.getElementById('dataModal').classList.add('hidden'); }
+
+    // --- 優化版壓力測試邏輯 ---
+    async function runStressTest() {
+        if(!currentFormId) return;
+        const logBox = document.getElementById('stressTestLog');
+        const resultBox = document.getElementById('stressResult');
+
+        if(!confirm("確定要發動 200 人併發攻擊嗎？\n這會瞬間消耗大量配額！")) return;
+
+        logBox.classList.remove('hidden');
+        resultBox.classList.add('hidden');
+        logBox.innerText = "🚀 攻擊開始 (請打開 F12 Console 查看詳細網路狀態)...\n";
+
+        let successCount = 0;
+        let failCount = 0;
+        const totalRequests = 200;
+        const promises = [];
+
+        const form = allFormsCache.find(f => f.id === currentFormId);
+        const dummyAnswers = {};
+        if(form && form.schemaJson) {
+            try {
+                JSON.parse(form.schemaJson).forEach(field => {
+                    if(field.type === 'NUMBER') dummyAnswers[field.name] = Math.floor(Math.random() * 50) + 20;
+                    else if (field.type === 'EMAIL') dummyAnswers[field.name] = `bot${Math.floor(Math.random()*1000)}@test.com`;
+                    else dummyAnswers[field.name] = `stress_test`;
+                });
+            } catch(e) {}
+        }
+
+        for(let i=0; i<totalRequests; i++) {
+            const randomUser = `bot_${Date.now()}_${i}`;
+            const p = fetch(`/api/forms/${currentFormId}/submit`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: randomUser, answers: dummyAnswers })
+            })
+            .then(res => { if (!res.ok) throw new Error(res.status); return res.json(); })
+            .then(res => {
+                if(res.code === 200) successCount++;
+                else failCount++;
+                if(i % 20 === 0) logBox.innerText += `[Bot-${i}] status: ${res.code}\n`;
+            })
+            .catch(err => {
+                failCount++;
+                console.error(`Bot-${i} fail:`, err);
+                logBox.innerText += `[Bot-${i}] ❌ 失敗\n`;
+            });
+            promises.push(p);
+        }
+
+        await Promise.all(promises);
+
+        logBox.innerText += "\n✅ 測試結束！";
+        logBox.scrollTop = logBox.scrollHeight;
+
+        resultBox.classList.remove('hidden');
+        resultBox.innerHTML = `
+            <div class="inline-block bg-gray-800 text-white px-6 py-3 rounded-lg shadow-lg">
+                <div class="text-sm text-gray-400">總請求數: ${totalRequests}</div>
+                <div class="text-2xl font-bold text-green-400">成功搶購: ${successCount}</div>
+                <div class="text-xl font-bold text-red-400">搶購失敗: ${failCount}</div>
+            </div>
+        `;
+        checkStatus(currentFormId);
+    }
+
+    // --- 核心邏輯 ---
+
+    async function refreshMyForms() {
+        try {
+            const res = await fetch(`/api/forms/owner/${currentUser}`);
+            if (!res.ok) throw new Error("API Error");
+            const result = await res.json();
+            const list = document.getElementById('myFormsList');
+            if(!result.data || result.data.length === 0) {
+                list.innerHTML = '<p class="text-gray-400 text-center py-4">無活動</p>'; return;
+            }
+            list.innerHTML = result.data.map(f => `
+                <div class="border border-blue-100 p-4 rounded-lg bg-blue-50">
+                    <div class="flex justify-between items-start mb-2">
+                        <div>
+                            <div class="font-bold text-gray-800">${f.title}</div>
+                            <div class="text-xs text-gray-500">ID: ${f.id} | 配額: ${f.quota}</div>
+                        </div>
+                        <div class="flex gap-2">
+                            <button onclick="checkStatus(${f.id})" class="text-blue-600 bg-white px-2 py-1 rounded border hover:bg-gray-50 text-xs">配額</button>
+                            <button onclick="showDataModal(${f.id}, '${f.title}')" class="text-white bg-blue-600 px-2 py-1 rounded hover:bg-blue-700 text-xs shadow">查看名單</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        } catch (e) {
+            console.error("refreshMyForms failed", e);
+            document.getElementById('myFormsList').innerHTML = '<p class="text-red-500 text-center">無法載入資料 (請檢查後端)</p>';
+        }
+    }
+
+    async function refreshPublicForms() {
+        try {
+            const res = await fetch('/api/forms/public');
+            if (!res.ok) throw new Error("API Error");
+            const result = await res.json();
+            allFormsCache = result.data || [];
+            const list = document.getElementById('publicFormsList');
+            if(!allFormsCache.length) {
+                list.innerHTML = '<p class="text-gray-400 text-center py-4">無活動</p>'; return;
+            }
+            list.innerHTML = allFormsCache.map(f => `
+                <div class="border p-4 rounded bg-white hover:shadow-md transition flex justify-between">
+                    <div><div class="font-bold">${f.title}</div><div class="text-xs text-gray-500">By ${f.ownerId}</div></div>
+                    <button onclick="goToSeckill(${f.id})" class="bg-red-500 text-white px-4 py-2 rounded font-bold text-sm">搶購 ➔</button>
+                </div>
+            `).join('');
+        } catch (e) {
+            console.error("refreshPublicForms failed", e);
+            document.getElementById('publicFormsList').innerHTML = '<p class="text-red-500 text-center">無法載入資料</p>';
+        }
+    }
+
+    function goToSeckill(formId) {
+        const form = allFormsCache.find(f => f.id === formId);
+        if (!form) return alert("資料錯誤，請刷新");
+        currentFormId = formId;
+        hideAllViews();
+        document.getElementById('seckillView').classList.remove('hidden');
+        document.getElementById('seckillTitle').innerText = form.title;
+        document.getElementById('currentFormIdDisplay').innerText = formId;
+        renderDynamicForm(form.schemaJson);
+        document.getElementById('stressTestLog').classList.add('hidden');
+        document.getElementById('stressResult').classList.add('hidden');
+        document.getElementById('resultMessage').classList.add('hidden');
+    }
+
+    function renderDynamicForm(schemaJson) {
+        const container = document.getElementById('dynamicFormContainer');
+        container.innerHTML = '';
+        let schema = [];
+        try { schema = schemaJson ? JSON.parse(schemaJson) : []; } catch (e) {}
+        if (schema.length === 0) { container.innerHTML = '<p class="text-gray-500 text-sm">無需填寫資料</p>'; return; }
+        schema.forEach(field => {
+            const wrapper = document.createElement('div');
+            let inputType = field.type === 'NUMBER' ? 'number' : (field.type === 'EMAIL' ? 'email' : 'text');
+            wrapper.innerHTML = `<label class="block text-sm text-gray-700 mb-1">${field.name}</label>
+                <input type="${inputType}" name="${field.name}" class="dynamic-input w-full border p-2 rounded outline-none focus:ring-2 focus:ring-red-500" ${field.required ? 'required' : ''}>`;
+            container.appendChild(wrapper);
+        });
+    }
+
+    async function executeSeckill() {
+        if(!currentFormId) return;
+        const inputs = document.querySelectorAll('.dynamic-input');
+        const answers = {};
+        let hasError = false;
+        inputs.forEach(input => {
+            if (input.hasAttribute('required') && !input.value) { input.classList.add('border-red-500'); hasError = true; }
+            else { input.classList.remove('border-red-500'); answers[input.name] = input.type === 'number' ? Number(input.value) : input.value; }
+        });
+        if (hasError) return alert('請填寫必填欄位');
+
+        const btn = document.getElementById('seckillBtn');
+        const msgBox = document.getElementById('resultMessage');
+        btn.disabled = true; btn.innerHTML = '處理中...';
+        try {
+            const res = await fetch(`/api/forms/${currentFormId}/submit`, {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: currentUser, answers })
+            });
+            const result = await res.json();
+            msgBox.classList.remove('hidden');
+            msgBox.innerText = result.message;
+            msgBox.className = result.code === 200 ? 'mt-6 p-4 rounded bg-green-100 text-green-800' : 'mt-6 p-4 rounded bg-yellow-100 text-yellow-800';
+        } catch (e) { alert('Error'); } finally { btn.disabled = false; btn.innerText = '🔥 立即搶購 (Seckill!)'; }
+    }
+
+    async function checkStatus(formId) {
+        try {
+            const res = await fetch(`/api/forms/${formId}/quota`);
+            const result = await res.json();
+            alert(`剩餘配額: ${result.data}`);
+        } catch(e) {}
+    }
+
+    function showCreateModal() { document.getElementById('createModal').classList.remove('hidden'); }
+    function hideCreateModal() { document.getElementById('createModal').classList.add('hidden'); }
+
+    function addSchemaField() {
+        const container = document.getElementById('schemaContainer');
+        const hint = document.getElementById('emptySchemaHint');
+        if(hint) hint.style.display = 'none';
+        const div = document.createElement('div');
+        div.className = 'schema-row flex gap-2 mb-2 items-center bg-gray-50 p-2 rounded border';
+        div.innerHTML = `
+            <input type="text" class="field-name border p-1 rounded w-1/3 text-sm focus:ring-2 focus:ring-blue-500 outline-none" placeholder="key (如: email)">
+            <select class="field-type border p-1 rounded w-1/3 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none">
+                <option value="TEXT">文字 (Text)</option>
+                <option value="NUMBER">數字 (Number)</option>
+                <option value="EMAIL">Email</option>
+            </select>
+            <button onclick="this.parentElement.remove()" class="text-gray-400 hover:text-red-500 px-2 font-bold text-lg">×</button>
+        `;
+        container.appendChild(div);
+    }
+
+    function buildSchemaJson() {
+        const rows = document.querySelectorAll('.schema-row');
+        const schema = [];
+        rows.forEach(r => { const name = r.querySelector('.field-name').value; if(name) schema.push({name, type: r.querySelector('.field-type').value, required: true}); });
+        return JSON.stringify(schema);
+    }
+
+    async function submitNewForm() {
+        const title = document.getElementById('newTitle').value;
+        const quota = document.getElementById('newQuota').value;
+        if(!title) return;
+        const payload = { ownerId: currentUser, title, quota: parseInt(quota), startTime: new Date().toISOString(), endTime: new Date(Date.now()+3600000).toISOString(), schemaJson: buildSchemaJson() };
+
+        try {
+            const res = await fetch('/api/forms', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+            const result = await res.json();
+            if(result.code === 200) {
+                hideCreateModal();
+                refreshMyForms();
+                refreshPublicForms();
+                alert('發布成功');
+            } else {
+                alert('發布失敗: ' + result.message);
+            }
+        } catch(e) { alert('系統錯誤'); }
+    }
+</script>
+</body>
+</html>

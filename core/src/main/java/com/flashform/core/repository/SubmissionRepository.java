@@ -10,7 +10,7 @@ import java.util.List;
 @Repository
 public interface SubmissionRepository extends JpaRepository<Submission, Long> {
 
-    // for data rebuild during Cache Breakdown (get only userId for efficiency)
     @Query("SELECT s.userId FROM Submission s WHERE s.formId = :formId")
-    List<String> findAllUserIdsByFormId(String formId);
+    List<String> findAllUserIdsByFormId(Long formId);
+    List<Submission> findByFormId(Long formId);
 }

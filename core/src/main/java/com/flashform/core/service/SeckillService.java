@@ -42,14 +42,17 @@ public class SeckillService {
 
     public Long executeSubmission(SubmissionRequest request) {
         try {
-            String formId = request.getFormId();
+            // ✨ 修改點 1: 這裡現在直接獲取 Long
+            Long formId = request.getFormId();
             String userId = request.getUserId();
 
             // Step 1: Redis Meta Check
+            // 注意：Java 會自動將 Long 轉為 String 進行拼接，所以 "form:meta:" + formId 依然有效
             Map<Object, Object> meta = redisTemplate.opsForHash().entries("form:meta:" + formId);
 
             if (meta.isEmpty()) {
-                Form form = formRepository.findById(Long.parseLong(formId)).orElse(null);
+                // ✨ 修改點 2: 直接傳入 Long，不需要 Long.parseLong()
+                Form form = formRepository.findById(formId).orElse(null);
                 if (form == null) return -2L;
 
                 long startMillis = form.getStartTime().toInstant(ZoneOffset.UTC).toEpochMilli();
@@ -68,7 +71,8 @@ public class SeckillService {
             } else {
                 String quotaKey = "form:quota:" + formId;
                 if (Boolean.FALSE.equals(redisTemplate.hasKey(quotaKey))) {
-                    Form form = formRepository.findById(Long.parseLong(formId)).orElse(null);
+                    // ✨ 修改點 3: 同樣直接傳入 Long
+                    Form form = formRepository.findById(formId).orElse(null);
                     if (form != null) {
                         redisTemplate.opsForValue().set(quotaKey, form.getQuota().toString());
                     } else {
@@ -96,26 +100,25 @@ public class SeckillService {
             }
 
             // Step 4: Lock & Send
-            redisTemplate.opsForSet().add("form:submitted:" + formId, userId);
+            String submittedKey = "form:submitted:" + formId;
+            redisTemplate.opsForSet().add(submittedKey, userId);
+
+            // ✨ 重要修改：補上過期時間，防止被之前的「5分鐘佔位符」影響導致名單消失
+            redisTemplate.expire(submittedKey, 24, TimeUnit.HOURS);
+
             rabbitTemplate.convertAndSend(RabbitMQConfig.QUEUE_NAME, request);
 
             return 1L;
 
         } catch (BusinessException e) {
-            // ✨ 重要：如果是我們定義的業務異常，直接拋出，不要包裝！
-            // 這樣 GlobalExceptionHandler 才能抓到 400
             throw e;
-
         } catch (Exception e) {
-            // 🔥 將所有 Checked Exception 封裝成 RuntimeException
-            // 這樣 Maven 編譯就不會報錯，且 GlobalExceptionHandler 依然能抓到
             throw new RuntimeException(e.getMessage());
         }
     }
 
     private void checkTimeAndSchema(long start, long end, String schemaJson, Map<String, Object> answers) {
         long now = System.currentTimeMillis();
-        // 使用自定義異常，確保觸發 400
         if (now < start) throw new BusinessException("Form not started yet.");
         if (now > end) throw new BusinessException("Form ended.");
 
@@ -124,13 +127,13 @@ public class SeckillService {
                 List<FieldDefinition> schema = objectMapper.readValue(schemaJson, new TypeReference<>() {});
                 formValidator.validate(schema, answers);
             } catch (Exception e) {
-                // ✨ 這裡也改用 BusinessException
                 throw new BusinessException("Schema validation error: " + e.getMessage());
             }
         }
     }
 
-    private boolean hasUserSubmitted(String formId, String userId) {
+    // ✨ 修改點 4: 參數改為 Long formId
+    private boolean hasUserSubmitted(Long formId, String userId) {
         String cacheKey = "form:submitted:" + formId;
         String lockKey = "lock:rebuild:" + formId;
 
@@ -142,6 +145,7 @@ public class SeckillService {
 
         if (Boolean.TRUE.equals(acquiredLock)) {
             try {
+                // ✨ 修改點 5: Repository 已經改成接收 Long 了，這裡直接傳入
                 List<String> userIds = submissionRepository.findAllUserIdsByFormId(formId);
                 if (!userIds.isEmpty()) {
                     redisTemplate.opsForSet().add(cacheKey, userIds.toArray(new String[0]));
