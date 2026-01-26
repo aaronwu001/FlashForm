@@ -76,10 +76,10 @@
 
             <div class="mt-12 pt-6 border-t border-dashed border-gray-300">
                 <h3 class="text-lg font-bold text-gray-800 mb-2">💥 壓力測試 (Demo Only)</h3>
-                <p class="text-sm text-gray-500 mb-4">模擬 200 個併發請求，測試系統的「防超賣」能力。</p>
+                <p class="text-sm text-gray-500 mb-4">模擬 2000 個併發請求，測試系統的「防超賣」能力。</p>
                 <div class="flex gap-4">
                     <button onclick="runStressTest()" class="flex-1 bg-gray-800 text-white py-3 rounded-lg font-bold hover:bg-black transition">
-                        🚀 發動 200 人並行攻擊
+                        🚀 發動 2000 人並行攻擊
                     </button>
                 </div>
                 <div id="stressTestLog" class="mt-4 text-xs font-mono bg-gray-100 p-3 rounded max-h-40 overflow-y-auto hidden"></div>
@@ -152,7 +152,7 @@
         localStorage.setItem('flashform_user', id);
         currentUser = id;
 
-        // 增加一個 Loading 效果，讓你知道有在跑
+        // 增加一個 Loading 效果
         const btn = document.getElementById('loginBtn');
         btn.innerText = '載入系統中...';
         btn.disabled = true;
@@ -173,7 +173,7 @@
         document.getElementById('userInfo').classList.remove('hidden');
         document.getElementById('displayUser').innerText = `👤 ${currentUser}`;
 
-        // 使用 Promise.all 並行加載，並加上錯誤處理
+        // 使用 Promise.all 並行加載
         await Promise.all([refreshMyForms(), refreshPublicForms()]);
     }
 
@@ -201,11 +201,9 @@
                 return;
             }
 
-            // ✨ 這是一個內聯的小函數，用來把 JSON 字串變成漂亮的 HTML
             const formatAnswers = (jsonStr) => {
                 try {
                     const obj = JSON.parse(jsonStr);
-                    // 把每個 key-value 轉成一行行的 div
                     return Object.entries(obj).map(([key, val]) =>
                         `<div class="mb-1">
                             <span class="inline-block bg-blue-100 text-blue-800 text-xs px-2 py-0.5 rounded font-bold mr-1">${key}:</span>
@@ -213,7 +211,7 @@
                          </div>`
                     ).join('');
                 } catch (e) {
-                    return jsonStr; // 如果解析失敗就顯示原字串
+                    return jsonStr;
                 }
             };
 
@@ -222,7 +220,6 @@
                     <td class="px-4 py-3 text-gray-500">${sub.id}</td>
                     <td class="px-4 py-3 font-medium text-gray-900">${sub.userId}</td>
                     <td class="px-4 py-3 text-gray-500 text-xs">${new Date(sub.createTime).toLocaleString()}</td>
-
                     <td class="px-4 py-3 text-sm">
                         ${formatAnswers(sub.answersJson)}
                     </td>
@@ -236,13 +233,14 @@
     }
     function hideDataModal() { document.getElementById('dataModal').classList.add('hidden'); }
 
-    // --- 優化版壓力測試邏輯 ---
+    // --- 優化版壓力測試邏輯 (已升級為 2000 人) ---
     async function runStressTest() {
         if(!currentFormId) return;
         const logBox = document.getElementById('stressTestLog');
         const resultBox = document.getElementById('stressResult');
 
-        if(!confirm("確定要發動 200 人併發攻擊嗎？\n這會瞬間消耗大量配額！")) return;
+        // ✨ 修改點：確認訊息更新
+        if(!confirm("確定要發動 2000 人併發攻擊嗎？\n這會瞬間消耗大量配額，並可能導致瀏覽器短暫卡頓！")) return;
 
         logBox.classList.remove('hidden');
         resultBox.classList.add('hidden');
@@ -250,7 +248,8 @@
 
         let successCount = 0;
         let failCount = 0;
-        const totalRequests = 200;
+        // ✨ 修改點：數量提升至 2000
+        const totalRequests = 2000;
         const promises = [];
 
         const form = allFormsCache.find(f => f.id === currentFormId);
@@ -259,7 +258,7 @@
             try {
                 JSON.parse(form.schemaJson).forEach(field => {
                     if(field.type === 'NUMBER') dummyAnswers[field.name] = Math.floor(Math.random() * 50) + 20;
-                    else if (field.type === 'EMAIL') dummyAnswers[field.name] = `bot${Math.floor(Math.random()*1000)}@test.com`;
+                    else if (field.type === 'EMAIL') dummyAnswers[field.name] = `bot${Math.floor(Math.random()*10000)}@test.com`;
                     else dummyAnswers[field.name] = `stress_test`;
                 });
             } catch(e) {}
@@ -276,12 +275,14 @@
             .then(res => {
                 if(res.code === 200) successCount++;
                 else failCount++;
-                if(i % 20 === 0) logBox.innerText += `[Bot-${i}] status: ${res.code}\n`;
+                // ✨ 修改點：每 100 筆更新一次 Log，避免 2000 筆 Log 卡死 UI
+                if(i % 100 === 0) logBox.innerText += `[Bot-${i}] status: ${res.code}\n`;
             })
             .catch(err => {
                 failCount++;
                 console.error(`Bot-${i} fail:`, err);
-                logBox.innerText += `[Bot-${i}] ❌ 失敗\n`;
+                // 失敗也降低 Log 頻率
+                if(i % 100 === 0) logBox.innerText += `[Bot-${i}] ❌ 失敗\n`;
             });
             promises.push(p);
         }
@@ -297,6 +298,7 @@
                 <div class="text-sm text-gray-400">總請求數: ${totalRequests}</div>
                 <div class="text-2xl font-bold text-green-400">成功搶購: ${successCount}</div>
                 <div class="text-xl font-bold text-red-400">搶購失敗: ${failCount}</div>
+                <div class="text-xs text-gray-500 mt-1">(檢查 F12 Network 看是否有 500 錯誤)</div>
             </div>
         `;
         checkStatus(currentFormId);
