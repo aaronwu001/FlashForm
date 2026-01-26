@@ -1,9 +1,35 @@
-version: '3.8'
-
 services:
+  app:
+    build: .
+    # ✨ 修改點 1: 把這裡註解掉！
+    # 我們不希望從外部直接訪問 Spring Boot，必須通過 Nginx
+    # ports:
+    #   - "8080:8080"
+    environment:
+      - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/flashform
+      - SPRING_DATASOURCE_USERNAME=postgres
+      - SPRING_DATASOURCE_PASSWORD=password
+      - SPRING_RABBITMQ_HOST=rabbitmq
+      - SPRING_DATA_REDIS_HOST=redis
+    depends_on:
+      - postgres
+      - redis
+      - rabbitmq
+
+  # ✨ 修改點 2: 新增 Nginx 服務
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"  # 對外開放標準 HTTP Port (瀏覽器不用打 :8080 了)
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro  # 掛載剛剛寫好的設定檔
+      - ./src/main/resources/static:/usr/share/nginx/html:ro # ✨ 關鍵：動靜分離，Nginx 直接讀這個資料夾
+    depends_on:
+      - app
+
+  # --- 以下資料庫與中間件保持不變 ---
   postgres:
-    image: postgres:15
-    container_name: flashform-db
+    image: postgres:15-alpine
     environment:
       POSTGRES_DB: flashform
       POSTGRES_USER: postgres
@@ -12,72 +38,17 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-    networks:
-      - flashform-net
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
   redis:
-    image: redis:7
-    container_name: flashform-redis
+    image: redis:alpine
     ports:
       - "6379:6379"
-    networks:
-      - flashform-net
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
 
   rabbitmq:
     image: rabbitmq:3-management
-    container_name: flashform-mq
     ports:
-      - "5672:5672"   # for app
-      - "15672:15672" # for web admin interface
-    environment:
-      RABBITMQ_DEFAULT_USER: guest
-      RABBITMQ_DEFAULT_PASS: guest
-    networks:
-      - flashform-net
-    healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  app:
-    build: .
-    container_name: flashform-app
-    ports:
-      - "8080:8080"
-    environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/flashform
-      SPRING_DATASOURCE_USERNAME: postgres
-      SPRING_DATASOURCE_PASSWORD: password
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
-      SPRING_RABBITMQ_HOST: rabbitmq
-      SPRING_RABBITMQ_PORT: 5672
-      SPRING_RABBITMQ_USERNAME: guest
-      SPRING_RABBITMQ_PASSWORD: guest
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    networks:
-      - flashform-net
+      - "5672:5672"
+      - "15672:15672"
 
 volumes:
   postgres_data:
-
-networks:
-  flashform-net:
-    driver: bridge
