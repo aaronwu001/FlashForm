@@ -56,10 +56,10 @@ class SeckillServiceTest {
     @Test
     void testSeckillSuccess() {
         // Arrange
-        Long formId = 1L; // ✨ 修正：使用 Long
+        Long formId = 1L;
         String userId = "user123";
         SubmissionRequest request = new SubmissionRequest();
-        request.setFormId(formId); // ✨ 修正
+        request.setFormId(formId);
         request.setUserId(userId);
         request.setAnswers(new HashMap<>());
 
@@ -120,9 +120,9 @@ class SeckillServiceTest {
     @Test
     void testSeckillTimeNotStarted() {
         // Arrange
-        Long formId = 1L; // ✨ 修正
+        Long formId = 1L;
         SubmissionRequest request = new SubmissionRequest();
-        request.setFormId(formId); // ✨ 修正
+        request.setFormId(formId);
         request.setUserId("user1");
 
         Map<Object, Object> meta = new HashMap<>();
@@ -133,7 +133,6 @@ class SeckillServiceTest {
         when(redisTemplate.hasKey("form:quota:" + formId)).thenReturn(true);
 
         // Act & Assert
-        // ✨ 修正：現在我們會拋出 BusinessException 而不是通用的 RuntimeException
         assertThrows(BusinessException.class, () -> {
             seckillService.executeSubmission(request);
         });

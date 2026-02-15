@@ -1,11 +1,12 @@
 services:
+  # --- Spring Boot Application ---
   app:
     build: .
-    # ✨ 修改點 1: 把這裡註解掉！
-    # 我們不希望從外部直接訪問 Spring Boot，必須通過 Nginx
+    # Ports are exposed only to Nginx, not directly to host
     # ports:
     #   - "8080:8080"
     environment:
+      # Override local settings for Docker environment
       - SPRING_DATASOURCE_URL=jdbc:postgresql://postgres:5432/flashform
       - SPRING_DATASOURCE_USERNAME=postgres
       - SPRING_DATASOURCE_PASSWORD=password
@@ -16,18 +17,19 @@ services:
       - redis
       - rabbitmq
 
-  # ✨ 修改點 2: 新增 Nginx 服務
+  # --- Nginx Reverse Proxy ---
   nginx:
     image: nginx:alpine
     ports:
-      - "80:80"  # 對外開放標準 HTTP Port (瀏覽器不用打 :8080 了)
+      - "80:80"  # Public HTTP port
     volumes:
-      - ./nginx.conf:/etc/nginx/nginx.conf:ro  # 掛載剛剛寫好的設定檔
-      - ./src/main/resources/static:/usr/share/nginx/html:ro # ✨ 關鍵：動靜分離，Nginx 直接讀這個資料夾
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      # Mount static resources directly to Nginx for performance
+      - ./src/main/resources/static:/usr/share/nginx/html:ro
     depends_on:
       - app
 
-  # --- 以下資料庫與中間件保持不變 ---
+  # --- Infrastructure Services ---
   postgres:
     image: postgres:15-alpine
     environment:
@@ -47,8 +49,8 @@ services:
   rabbitmq:
     image: rabbitmq:3-management
     ports:
-      - "5672:5672"
-      - "15672:15672"
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI
 
 volumes:
   postgres_data:

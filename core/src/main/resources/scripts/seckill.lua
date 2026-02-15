@@ -1,28 +1,37 @@
--- KEYS[1]: form quota (e.g. "form:quota:101")
--- KEYS[2]: Submitted list (Set structure, e.g. "form:submitted:101")
--- ARGV[1]: User ID
+-- FlashForm Seckill Atomic Script
+-- Purpose: Handle stock deduction and user recording atomically to prevent overselling.
+
+-- KEYS[1]: form:quota:{id}      (The Redis key holding the remaining stock count)
+-- KEYS[2]: form:submitted:{id}  (The Redis Set key holding user IDs who successfully submitted)
+-- ARGV[1]: userId               (The ID of the user attempting to submit)
 
 local quotaKey = KEYS[1]
 local submittedKey = KEYS[2]
 local userId = ARGV[1]
 
--- 1. Check repeated submission (Idempotency)
-if redis.call('SISMEMBER', submittedKey, userId) == 1 then
-    return -1 -- error code -1: repeated submission
+-- 1. Idempotency Check: Verify if the user has already submitted.
+-- If the user ID exists in the set, return -1 to indicate duplicate submission.
+if redis.call('sismember', submittedKey, userId) == 1 then
+    return -1
 end
 
--- 2. Check remaining quota
-local currentQuota = tonumber(redis.call('GET', quotaKey))
+-- 2. Stock Check: Retrieve the current quota.
+local stock = tonumber(redis.call('get', quotaKey))
 
--- if quota does not exist (nil) or used up (<= 0)
-if currentQuota == nil or currentQuota <= 0 then
-    return 0 -- error code 0: quota full
+-- Edge Case Handling: If the quota key does not exist, Redis returns nil.
+-- We treat a missing key as "Sold Out" (0) to prevent runtime errors.
+if stock == nil then
+    return 0
 end
 
--- 3. 執行提交 (原子操作)
--- decrement quota (Quota - 1)
-redis.call('DECR', quotaKey)
--- add user to submitted list
-redis.call('SADD', submittedKey, userId)
+-- If stock is 0 or less, return 0 (Sold Out).
+if stock <= 0 then
+    return 0
+end
 
-return 1 -- success code 1: submission successful
+-- 3. Critical Section: Decrement stock & Record submission (Atomic Operation)
+-- Since Lua scripts execute atomically in Redis, no other request can interrupt these two steps.
+redis.call('decr', quotaKey)
+redis.call('sadd', submittedKey, userId)
+
+return 1 -- Success

@@ -8,20 +8,25 @@ import com.flashform.core.entity.Form;
 import com.flashform.core.exception.BusinessException;
 import com.flashform.core.model.FieldDefinition;
 import com.flashform.core.repository.FormRepository;
-import com.flashform.core.repository.SubmissionRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.scripting.support.ResourceScriptSource;
 import org.springframework.stereotype.Service;
 
+import jakarta.annotation.PostConstruct;
 import java.time.ZoneOffset;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 @Service
 public class SeckillService {
+
+    private static final Logger logger = LoggerFactory.getLogger(SeckillService.class);
 
     @Autowired
     private StringRedisTemplate redisTemplate;
@@ -33,95 +38,158 @@ public class SeckillService {
     private FormRepository formRepository;
 
     @Autowired
-    private SubmissionRepository submissionRepository;
-
-    @Autowired
     private FormValidator formValidator;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    // Lua script instance for atomic operations
+    private DefaultRedisScript<Long> seckillScript;
+
+    /**
+     * Initialize the Lua script on startup to avoid I/O overhead per request.
+     */
+    @PostConstruct
+    public void init() {
+        seckillScript = new DefaultRedisScript<>();
+        seckillScript.setResultType(Long.class);
+        seckillScript.setScriptSource(new ResourceScriptSource(new ClassPathResource("scripts/seckill.lua")));
+    }
+
+    /**
+     * Core Entry Point for Flash Sale (Seckill) Submissions.
+     */
     public Long executeSubmission(SubmissionRequest request) {
-        try {
-            // ✨ 修改點 1: 這裡現在直接獲取 Long
-            Long formId = request.getFormId();
-            String userId = request.getUserId();
+        Long formId = request.getFormId();
+        String userId = request.getUserId();
 
-            // Step 1: Redis Meta Check
-            // 注意：Java 會自動將 Long 轉為 String 進行拼接，所以 "form:meta:" + formId 依然有效
-            Map<Object, Object> meta = redisTemplate.opsForHash().entries("form:meta:" + formId);
+        // --- Phase 1: Java Pre-check & Cache Warm-up (Read Path) ---
+        // Filters invalid requests and ensures Redis data exists.
+        // If Redis is empty, it triggers the Distributed Lock mechanism to prevent DB Breakdown.
+        Map<Object, Object> meta = getFormMetaWithLock(formId);
 
-            if (meta.isEmpty()) {
-                // ✨ 修改點 2: 直接傳入 Long，不需要 Long.parseLong()
-                Form form = formRepository.findById(formId).orElse(null);
-                if (form == null) return -2L;
+        if (meta == null || meta.isEmpty()) {
+            return -2L; // Form not found
+        }
 
-                long startMillis = form.getStartTime().toInstant(ZoneOffset.UTC).toEpochMilli();
-                long endMillis = form.getEndTime().toInstant(ZoneOffset.UTC).toEpochMilli();
+        // Check for "Cache Penetration" placeholder
+        if ("NOT_FOUND".equals(meta.get("status"))) {
+            return -2L;
+        }
 
-                Map<String, String> newMeta = new HashMap<>();
-                newMeta.put("startTime", String.valueOf(startMillis));
-                newMeta.put("endTime", String.valueOf(endMillis));
-                newMeta.put("schema", form.getSchemaJson() != null ? form.getSchemaJson() : "");
+        // Perform business validation (Time window & Schema validation)
+        checkTimeAndSchema(meta, request.getAnswers());
 
-                redisTemplate.opsForHash().putAll("form:meta:" + formId, newMeta);
-                redisTemplate.expire("form:meta:" + formId, 24, TimeUnit.HOURS);
-                redisTemplate.opsForValue().setIfAbsent("form:quota:" + formId, form.getQuota().toString());
+        // --- Phase 2: Lua Atomic Execution (Write Path) ---
+        // No Java locks needed here.
+        // The Lua script guarantees atomicity for: [Duplicate Check -> Stock Check -> Decrement -> List Add]
+        List<String> keys = Arrays.asList(
+                "form:quota:" + formId,      // KEYS[1]: Stock Key
+                "form:submitted:" + formId   // KEYS[2]: Submission List Key
+        );
 
-                checkTimeAndSchema(startMillis, endMillis, form.getSchemaJson(), request.getAnswers());
-            } else {
-                String quotaKey = "form:quota:" + formId;
-                if (Boolean.FALSE.equals(redisTemplate.hasKey(quotaKey))) {
-                    // ✨ 修改點 3: 同樣直接傳入 Long
-                    Form form = formRepository.findById(formId).orElse(null);
-                    if (form != null) {
-                        redisTemplate.opsForValue().set(quotaKey, form.getQuota().toString());
-                    } else {
-                        return -2L;
-                    }
+        // Execute Lua script
+        // Returns: 1=Success, -1=Duplicate, 0=Sold Out
+        Long result = redisTemplate.execute(seckillScript, keys, userId);
+
+        // --- Phase 3: Post-processing (Async) ---
+        if (result != null && result == 1L) {
+            // Only send to MQ if Lua confirms the slot is secured.
+            // This decouples traffic and ensures no overselling downstream.
+            rabbitTemplate.convertAndSend(RabbitMQConfig.QUEUE_NAME, request);
+            return 1L;
+        }
+
+        // Return the status code from Lua (0 or -1)
+        return result != null ? result : 0L;
+    }
+
+    /**
+     * Retrieves form metadata with Distributed Lock protection.
+     * Prevents "Cache Breakdown" (Thundering Herd problem) when cache expires.
+     */
+    private Map<Object, Object> getFormMetaWithLock(Long formId) {
+        String metaKey = "form:meta:" + formId;
+
+        // 1. Fast Path: Cache Hit
+        Map<Object, Object> meta = redisTemplate.opsForHash().entries(metaKey);
+        if (!meta.isEmpty()) {
+            return meta;
+        }
+
+        // 2. Slow Path: Cache Miss
+        // Acquire a distributed lock to prevent multiple threads from hitting the DB simultaneously.
+        String lockKey = "lock:meta_rebuild:" + formId;
+        // TTL set to 10s to prevent deadlock if the server crashes while holding the lock
+        Boolean acquiredLock = redisTemplate.opsForValue().setIfAbsent(lockKey, "LOCKED", 10, TimeUnit.SECONDS);
+
+        if (Boolean.TRUE.equals(acquiredLock)) {
+            try {
+                // Double-Check Locking (DCL):
+                // Verify cache again in case another thread populated it while we were waiting.
+                meta = redisTemplate.opsForHash().entries(metaKey);
+                if (!meta.isEmpty()) {
+                    return meta;
                 }
 
-                long start = Long.parseLong((String) meta.get("startTime"));
-                long end = Long.parseLong((String) meta.get("endTime"));
-                String schemaJson = (String) meta.get("schema");
+                // Query Database
+                logger.info("Cache miss for form {}, rebuilding from DB...", formId);
+                Form form = formRepository.findById(formId).orElse(null);
 
-                checkTimeAndSchema(start, end, schemaJson, request.getAnswers());
+                Map<String, String> newMeta = new HashMap<>();
+                if (form != null) {
+                    // Rebuild Meta Data
+                    long startMillis = form.getStartTime().toInstant(ZoneOffset.UTC).toEpochMilli();
+                    long endMillis = form.getEndTime().toInstant(ZoneOffset.UTC).toEpochMilli();
+
+                    newMeta.put("startTime", String.valueOf(startMillis));
+                    newMeta.put("endTime", String.valueOf(endMillis));
+                    newMeta.put("schema", form.getSchemaJson() != null ? form.getSchemaJson() : "");
+                    newMeta.put("status", "ACTIVE");
+
+                    // Critical: Ensure the Quota key exists for the Lua script
+                    redisTemplate.opsForValue().setIfAbsent("form:quota:" + formId, form.getQuota().toString());
+
+                    // Write to Redis (TTL 24h)
+                    redisTemplate.opsForHash().putAll(metaKey, newMeta);
+                    redisTemplate.expire(metaKey, 24, TimeUnit.HOURS);
+                } else {
+                    // Prevent Cache Penetration: Cache a placeholder for non-existent IDs
+                    newMeta.put("status", "NOT_FOUND");
+                    redisTemplate.opsForHash().putAll(metaKey, newMeta);
+                    redisTemplate.expire(metaKey, 5, TimeUnit.MINUTES); // Short TTL
+                }
+
+                return new HashMap<>(newMeta);
+
+            } finally {
+                // Always release the lock
+                redisTemplate.delete(lockKey);
             }
-
-            // Step 2: Idempotency Check
-            if (hasUserSubmitted(formId, userId)) {
-                return -1L;
+        } else {
+            // 3. Follower: Lock busy
+            // Sleep briefly and retry (Spin Lock pattern)
+            try {
+                Thread.sleep(100); // 100ms
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
             }
-
-            // Step 3: Decrement Quota
-            Long remainingQuota = redisTemplate.opsForValue().decrement("form:quota:" + formId);
-            if (remainingQuota == null || remainingQuota < 0) {
-                if (remainingQuota != null) redisTemplate.opsForValue().increment("form:quota:" + formId);
-                return 0L;
-            }
-
-            // Step 4: Lock & Send
-            String submittedKey = "form:submitted:" + formId;
-            redisTemplate.opsForSet().add(submittedKey, userId);
-
-            // ✨ 重要修改：補上過期時間，防止被之前的「5分鐘佔位符」影響導致名單消失
-            redisTemplate.expire(submittedKey, 24, TimeUnit.HOURS);
-
-            rabbitTemplate.convertAndSend(RabbitMQConfig.QUEUE_NAME, request);
-
-            return 1L;
-
-        } catch (BusinessException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new RuntimeException(e.getMessage());
+            // Recursive call to retry fetching
+            return getFormMetaWithLock(formId);
         }
     }
 
-    private void checkTimeAndSchema(long start, long end, String schemaJson, Map<String, Object> answers) {
+    /**
+     * In-memory validation for Time Window and JSON Schema.
+     */
+    private void checkTimeAndSchema(Map<Object, Object> meta, Map<String, Object> answers) {
         long now = System.currentTimeMillis();
+        long start = Long.parseLong((String) meta.get("startTime"));
+        long end = Long.parseLong((String) meta.get("endTime"));
+
         if (now < start) throw new BusinessException("Form not started yet.");
         if (now > end) throw new BusinessException("Form ended.");
 
+        String schemaJson = (String) meta.get("schema");
         if (schemaJson != null && !schemaJson.isEmpty()) {
             try {
                 List<FieldDefinition> schema = objectMapper.readValue(schemaJson, new TypeReference<>() {});
@@ -129,38 +197,6 @@ public class SeckillService {
             } catch (Exception e) {
                 throw new BusinessException("Schema validation error: " + e.getMessage());
             }
-        }
-    }
-
-    // ✨ 修改點 4: 參數改為 Long formId
-    private boolean hasUserSubmitted(Long formId, String userId) {
-        String cacheKey = "form:submitted:" + formId;
-        String lockKey = "lock:rebuild:" + formId;
-
-        if (Boolean.TRUE.equals(redisTemplate.hasKey(cacheKey))) {
-            return Boolean.TRUE.equals(redisTemplate.opsForSet().isMember(cacheKey, userId));
-        }
-
-        Boolean acquiredLock = redisTemplate.opsForValue().setIfAbsent(lockKey, "LOCKED", 5, TimeUnit.SECONDS);
-
-        if (Boolean.TRUE.equals(acquiredLock)) {
-            try {
-                // ✨ 修改點 5: Repository 已經改成接收 Long 了，這裡直接傳入
-                List<String> userIds = submissionRepository.findAllUserIdsByFormId(formId);
-                if (!userIds.isEmpty()) {
-                    redisTemplate.opsForSet().add(cacheKey, userIds.toArray(new String[0]));
-                    redisTemplate.expire(cacheKey, 24, TimeUnit.HOURS);
-                } else {
-                    redisTemplate.opsForSet().add(cacheKey, "EMPTY_PLACEHOLDER");
-                    redisTemplate.expire(cacheKey, 5, TimeUnit.MINUTES);
-                }
-                return userIds.contains(userId);
-            } finally {
-                redisTemplate.delete(lockKey);
-            }
-        } else {
-            try { Thread.sleep(50); } catch (Exception e) {}
-            return hasUserSubmitted(formId, userId);
         }
     }
 }

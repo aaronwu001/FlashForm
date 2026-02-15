@@ -1,5 +1,6 @@
 package com.flashform.core.service;
 
+import com.flashform.core.exception.BusinessException;
 import com.flashform.core.model.FieldDefinition;
 import org.springframework.stereotype.Component;
 
@@ -21,10 +22,10 @@ public class FormValidator {
             String key = field.getName();
             Object value = answers.get(key);
 
-            // 1. 必填檢查
+            // 1. requirement validation
             if (field.isRequired()) {
                 if (value == null || value.toString().trim().isEmpty()) {
-                    throw new IllegalArgumentException("Field is required: " + key);
+                    throw new BusinessException("Field is required: " + key);
                 }
             }
 
@@ -32,7 +33,7 @@ public class FormValidator {
                 continue;
             }
 
-            // 2. 類型檢查
+            // 2. type validation
             validateType(field, value);
         }
     }
@@ -42,12 +43,12 @@ public class FormValidator {
         switch (field.getType()) {
             case NUMBER:
                 if (!isNumeric(strVal)) {
-                    throw new IllegalArgumentException("Field [" + field.getName() + "] must be a number.");
+                    throw new BusinessException("Field [" + field.getName() + "] must be a number.");
                 }
                 break;
             case EMAIL:
                 if (!EMAIL_PATTERN.matcher(strVal).matches()) {
-                    throw new IllegalArgumentException("Field [" + field.getName() + "] must be a valid email.");
+                    throw new BusinessException("Field [" + field.getName() + "] must be a valid email.");
                 }
                 break;
             default:

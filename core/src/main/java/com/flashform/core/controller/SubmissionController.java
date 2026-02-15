@@ -21,13 +21,11 @@ public class SubmissionController {
     private SubmissionRepository submissionRepository;
 
     /**
-     * 用戶提交表單 (秒殺入口)
+     * user submission
      * POST /api/forms/{formId}/submit
      */
     @PostMapping("/{formId}/submit")
-    // ✨ 修改點：@PathVariable Long formId
     public Result<String> submitForm(@PathVariable Long formId, @RequestBody SubmissionRequest request) {
-        // 將路徑上的 formId 塞入 request 物件，確保一致
         request.setFormId(formId);
 
         Long result = seckillService.executeSubmission(request);
@@ -42,11 +40,10 @@ public class SubmissionController {
     }
 
     /**
-     * 查詢某個表單的所有提交紀錄 (Owner 專用)
+     * get all submissions for a specific form (Owner only)
      * GET /api/forms/{formId}/submissions
      */
     @GetMapping("/{formId}/submissions")
-    // ✨ 修改點：@PathVariable Long formId
     public Result<List<Submission>> getSubmissions(@PathVariable Long formId) {
         List<Submission> list = submissionRepository.findByFormId(formId);
         return Result.success("Fetched submissions", list);
