@@ -16,24 +16,26 @@ public class Form {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
-    // 發起表單的人 (可以是管理員 ID 或 User ID)
+    // The creator of the form (can be an Admin ID or User ID)
     private String ownerId;
 
     private String title;
 
-    // 關鍵欄位：存儲表單結構定義 (JSON String)
-    // 例如: [{"name":"age", "type":"NUMBER", "required":true}]
+    /**
+     * Stores form structure definition as a JSON string.
+     * e.g., [{"name":"age", "type":"NUMBER", "required":true}]
+     */
     @Column(columnDefinition = "TEXT")
     private String schemaJson;
 
-    // 總量限制 (庫存)
+    // Total submission limit (Inventory/Quota)
     private Integer quota;
 
-    // 表單開啟與關閉時間
+    // Form availability window
     private LocalDateTime startTime;
     private LocalDateTime endTime;
 
-    // 方便創建的建構子
+    // Constructor for manual object creation
     public Form(String ownerId, String title, String schemaJson, Integer quota, LocalDateTime startTime, LocalDateTime endTime) {
         this.ownerId = ownerId;
         this.title = title;

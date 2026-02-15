@@ -8,7 +8,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 public class Result<T> {
-    private int code;       // 業務狀態碼 (200: 成功, 400: 參數錯誤, 0: 賣完, -1: 重複)
+    private int code;       // business status code (200: success, 400: parameter error, 0: sold out, -1: repeated)
     private String message;
     private T data;
 

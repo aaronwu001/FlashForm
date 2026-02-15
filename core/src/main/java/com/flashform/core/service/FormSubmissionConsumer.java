@@ -39,7 +39,7 @@ public class FormSubmissionConsumer {
                     request.getFormId(),
                     request.getUserId(),
                     jsonAnswers,
-                    request.getClientTimestamp() // 傳入 DTO 的值
+                    request.getClientTimestamp()
             );
 
             submissionRepository.save(submission);

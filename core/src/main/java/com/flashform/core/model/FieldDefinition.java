@@ -10,7 +10,7 @@ import java.io.Serializable;
 @AllArgsConstructor
 @NoArgsConstructor
 public class FieldDefinition implements Serializable {
-    private String name;      // 欄位名稱 (JSON Key)，例如 "age"
-    private FieldType type;   // 類型，例如 NUMBER
-    private boolean required; // 是否必填
+    private String name;
+    private FieldType type;
+    private boolean required;
 }

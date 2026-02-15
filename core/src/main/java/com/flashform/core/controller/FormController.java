@@ -24,8 +24,9 @@ public class FormController {
     private StringRedisTemplate redisTemplate;
 
     /**
-     * 1. 創建表單並進行緩存預熱 (Cache Warm-up)
-     * POST /api/forms
+     * Create a new form and perform Cache Warm-up.
+     * Persistence: Saves to Database.
+     * Performance: Pre-loads quota and metadata into Redis.
      */
     @PostMapping
     public Result<Form> createForm(@RequestBody FormRequest request) {
@@ -41,10 +42,10 @@ public class FormController {
         form = formRepository.save(form);
         String formId = form.getId().toString();
 
-        // 🔥 Redis 預熱：寫入 Quota
+        // Redis Warm-up: Initialize Quota
         redisTemplate.opsForValue().set("form:quota:" + formId, form.getQuota().toString());
 
-        // 🔥 Redis 預熱：寫入 Meta (使用 UTC 時間戳)
+        // Redis Warm-up: Initialize Meta (using UTC timestamps)
         long startMillis = form.getStartTime().toInstant(ZoneOffset.UTC).toEpochMilli();
         long endMillis = form.getEndTime().toInstant(ZoneOffset.UTC).toEpochMilli();
 
@@ -55,13 +56,12 @@ public class FormController {
 
         redisTemplate.opsForHash().putAll("form:meta:" + formId, metaData);
 
-        // ✨ 修改點：回傳 Result<Form>，讓前端能立刻拿到 ID 和標題
+        // Return Result containing Form object for immediate frontend usage (ID, title, etc.)
         return Result.success("Form Created Successfully", form);
     }
 
     /**
-     * ✨ 新增：查詢特定用戶創建的表單
-     * GET /api/forms/owner/{ownerId}
+     * Fetch forms created by a specific user (Owner).
      */
     @GetMapping("/owner/{ownerId}")
     public Result<List<Form>> getMyForms(@PathVariable String ownerId) {
@@ -70,8 +70,7 @@ public class FormController {
     }
 
     /**
-     * ✨ 新增：查詢所有公開表單 (供其他用戶搶購)
-     * GET /api/forms/public
+     * Fetch all available public forms.
      */
     @GetMapping("/public")
     public Result<List<Form>> getAllPublicForms() {
@@ -79,8 +78,7 @@ public class FormController {
     }
 
     /**
-     * 2. 查詢剩餘配額
-     * GET /api/forms/{formId}/quota
+     * Retrieve current remaining quota from Redis cache.
      */
     @GetMapping("/{formId}/quota")
     public Result<String> getQuota(@PathVariable String formId) {
@@ -89,14 +87,15 @@ public class FormController {
     }
 
     /**
-     * 3. 重置表單狀態 (Admin 專用)
-     * POST /api/forms/{formId}/reset/{quota}
+     * Reset form status (Admin Only).
+     * Updates the quota and clears the submission list in Redis.
      */
     @PostMapping("/{formId}/reset/{quota}")
     public Result<String> resetQuota(@PathVariable String formId, @PathVariable int quota) {
-        // 更新配額
+        // Update Redis quota
         redisTemplate.opsForValue().set("form:quota:" + formId, String.valueOf(quota));
-        // 清除已提交名單
+
+        // Clear the duplicate-check set for this form
         redisTemplate.delete("form:submitted:" + formId);
 
         return Result.success("Reset Successful", "New Quota: " + quota);
